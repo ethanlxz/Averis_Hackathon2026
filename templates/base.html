@@ -30,6 +30,10 @@
           <a href="/library" {% if active_page == 'library' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#files"></use></svg>Documents</a>
           <a href="/upload" {% if active_page == 'upload' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#upload"></use></svg>Upload</a>
         </nav>
+        <div class="nav-section-label">Compliance</div>
+        <nav class="side-nav">
+          <a href="/audit" {% if active_page == 'audit' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#history"></use></svg>Audit Trail</a>
+        </nav>
         <div class="sidebar-footer">
           <span class="account-avatar" aria-hidden="true">A</span>
           <span><strong>Averis workspace</strong><small>Shipping operations</small></span>

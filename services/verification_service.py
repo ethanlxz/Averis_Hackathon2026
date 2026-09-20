@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from models.email_message import EmailMessage
 from models.extraction import Extraction
 from models.verification import Verification, utc_now
+from services.audit_service import record_verification
 from services.comparison_engine import COMPARISON_FIELDS, ComparisonEngine
 
 
@@ -112,7 +113,34 @@ class VerificationService:
         else:
             return record
 
+        record.reviewed_at = utc_now()
         db.flush()
+
+        email = (
+            db.query(EmailMessage)
+            .filter(EmailMessage.email_id == record.email_id)
+            .one_or_none()
+        )
+        if email is not None:
+            extractions = (
+                db.query(Extraction)
+                .filter(Extraction.email_id == record.email_id)
+                .all()
+            )
+            by_type = {extraction.document_type: extraction for extraction in extractions}
+            record_verification(
+                db,
+                email,
+                record,
+                by_type.get("SI"),
+                by_type.get("BL"),
+                event_type=(
+                    "verification_approved"
+                    if record.reviewer_status == "approved"
+                    else "verification_corrected"
+                ),
+                actor="reviewer",
+            )
         return record
 
     # -- persistence ----------------------------------------------------
@@ -155,6 +183,7 @@ class VerificationService:
         record.missing_fields = comparison["missing_fields"] if comparison else []
         record.verification_hash = self._hash(email, si, bl)
         db.flush()
+        record_verification(db, email, record, si, bl)
         return record
 
     # -- helpers --------------------------------------------------------
@@ -202,6 +231,7 @@ def serialize_verification(record: Verification | None) -> dict[str, Any] | None
         "corrected_fields": record.corrected_fields,
         "verification_hash": record.verification_hash,
         "created_at": record.created_at.isoformat() if record.created_at else None,
+        "reviewed_at": record.reviewed_at.isoformat() if record.reviewed_at else None,
         "verdict_label": VERDICT_LABELS.get(record.result, record.result),
         "verdict_class": VERDICT_CLASSES.get(record.result, ""),
     }

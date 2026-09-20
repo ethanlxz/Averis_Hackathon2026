@@ -34,6 +34,7 @@ h2 { margin-bottom: 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
 h3 { margin-bottom: 0; font-size: 14px; font-weight: 600; }
 .muted, .page-subtitle { color: var(--muted); }
 .page-subtitle { margin: 4px 0 0; font-size: 12px; }
+.block { display: block; }
 .tabular { font-variant-numeric: tabular-nums; }
 .app-shell { min-height: 100dvh; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
 .sidebar { height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; gap: 12px; padding: 20px 14px 16px; }
@@ -168,7 +169,7 @@ h3 { margin-bottom: 0; font-size: 14px; font-weight: 600; }
 .form-intro { color: var(--muted); margin: 4px 0 0; font-size: 12px; }
 .form-field { display: grid; gap: 7px; }
 .form-field label { font-weight: 600; }
-.form-field input[type="file"], .search-input { width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); }
+.form-field input[type="file"], .search-input, .filter-input { width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); }
 .form-field input[type="file"]::file-selector-button { margin-right: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--subtle); color: var(--ink); font: inherit; cursor: pointer; }
 .field-help { color: var(--muted); font-size: 12px; }
 .form-actions { display: flex; align-items: center; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
@@ -180,13 +181,34 @@ h3 { margin-bottom: 0; font-size: 14px; font-weight: 600; }
 .search-input { padding-left: 36px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .filters select { min-height: 40px; padding: 0 30px 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); }
+.audit-filter-form { align-items: stretch; }
+.audit-filter-form .search-wrap { width: min(300px, 100%); }
+.filter-input { width: 180px; }
+.filter-input.date { width: 150px; }
+.audit-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .85fr); gap: 16px; align-items: start; }
+.audit-table td { vertical-align: top; }
+.hash-cell, .hash-copy-row code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.audit-detail-panel { position: sticky; top: 16px; max-height: calc(100dvh - 32px); overflow: auto; }
+.audit-detail-body { display: grid; gap: 4px; }
+.audit-meta div { grid-template-columns: 118px minmax(0, 1fr); }
+.timeline-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.timeline-list li { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(150px, .8fr); gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.timeline-list li:first-child { border-top: 0; }
+.timeline-list strong { font-size: 12px; font-weight: 600; }
+.timeline-list span { font-variant-numeric: tabular-nums; }
+.timeline-list small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.hash-copy-row { display: flex; align-items: start; gap: 10px; }
+.hash-copy-row code { flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--subtle); }
+.highlight-row { background: #fff6e5; }
+.pagination-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 .record-body { white-space: pre-wrap; overflow-wrap: anywhere; color: #46464c; }
 .record-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .7fr); gap: 16px; align-items: start; }
 .record-layout .card { min-width: 0; }
 .notification { min-height: 20px; margin: 0; color: var(--muted); font-size: 12px; }
 .notification.error { color: var(--danger); }
 @media (max-width: 1100px) {
-  .workbench-grid, .split-overview, .record-layout { grid-template-columns: 1fr; }
+  .workbench-grid, .split-overview, .record-layout, .audit-layout { grid-template-columns: 1fr; }
+  .audit-detail-panel { position: static; max-height: none; }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
@@ -207,6 +229,7 @@ h3 { margin-bottom: 0; font-size: 14px; font-weight: 600; }
   .metric { min-height: 92px; }
   .metric-value { font-size: 24px; }
   .data-table { min-width: 640px; }
+  .audit-filter-form .search-wrap, .filter-input, .filter-input.date { width: 100%; }
   .category-tabs { margin-inline: -16px; padding-inline: 16px; }
 }
 @media (max-width: 420px) {

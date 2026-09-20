@@ -40,6 +40,7 @@ class Verification(Base):
     corrected_fields = Column(JSON, nullable=True)
     verification_hash = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     email = relationship("EmailMessage", back_populates="verifications")
     document = relationship(

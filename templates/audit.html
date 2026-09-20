@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Audit Trail{% endblock %}
+{% block page_title %}Audit Trail{% endblock %}
+{% block page_subtitle %}<p class="page-subtitle">{{ total }} matching event{{ "" if total == 1 else "s" }} · timestamps shown in UTC</p>{% endblock %}
+{% block header_actions %}
+  <a class="button secondary" href="/classification"><svg aria-hidden="true"><use href="/static/icons.svg#list-filter"></use></svg>Classification</a>
+{% endblock %}
+{% block content %}
+  {% if error %}<div class="callout error" role="alert"><strong>Filters reset</strong>{{ error }}</div>{% endif %}
+  <section class="section-stack" aria-labelledby="audit-filters-heading">
+    <div class="section-heading">
+      <div><h2 id="audit-filters-heading">Find an event</h2><p>Search by email, hash, result, reviewer status, or event type.</p></div>
+    </div>
+    <form class="toolbar audit-filter-form" action="/audit" method="get">
+      <div class="search-wrap">
+        <svg aria-hidden="true"><use href="/static/icons.svg#search"></use></svg>
+        <input class="search-input" type="search" name="q" value="{{ filters.q }}" placeholder="Search audit events" aria-label="Search audit events">
+      </div>
+      <input class="filter-input" type="search" name="email_id" value="{{ filters.email_id }}" placeholder="Email ID" aria-label="Filter by email ID">
+      <div class="filters">
+        <select name="event_type" aria-label="Filter by event type">
+          <option value="">All events</option>
+          {% for option in event_types %}
+          <option value="{{ option }}" {% if filters.event_type == option %}selected{% endif %}>{{ option.replace("_", " ").title() }}</option>
+          {% endfor %}
+        </select>
+        <select name="result" aria-label="Filter by result">
+          <option value="">All results</option>
+          {% for option in results %}
+          <option value="{{ option }}" {% if filters.result == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+        <select name="reviewer_status" aria-label="Filter by reviewer status">
+          <option value="">All review states</option>
+          {% for option in reviewer_statuses %}
+          <option value="{{ option }}" {% if filters.reviewer_status == option %}selected{% endif %}>{{ option.replace("_", " ").title() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <input class="filter-input date" type="date" name="date_from" value="{{ filters.date_from }}" aria-label="From date">
+      <input class="filter-input date" type="date" name="date_to" value="{{ filters.date_to }}" aria-label="To date">
+      <button class="button secondary" type="submit">Apply</button>
+      <a class="button ghost" href="/audit">Clear</a>
+    </form>
+  </section>
+
+  <section class="audit-layout" aria-label="Audit trail">
+    <div class="section-stack">
+      {% if events %}
+      <div class="table-wrap">
+        <table class="data-table audit-table">
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">Event</th>
+              <th scope="col">Email</th>
+              <th scope="col">Document</th>
+              <th scope="col">Result</th>
+              <th scope="col">Review</th>
+              <th scope="col">Hash</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in events %}
+            <tr data-audit-row="{{ event.id }}" class="{% if loop.first %}is-selected{% endif %}">
+              <td class="tabular">{{ event.occurred_at[:16].replace("T", " ") if event.occurred_at else "-" }} UTC</td>
+              <td><button class="record-button" type="button" data-audit-target="{{ event.id }}" aria-label="Show audit event {{ event.id }}">{{ event.event_label }}</button><small class="muted block">#{{ event.id }} · {{ event.actor }}</small></td>
+              <td>{% if event.email_id %}<a class="record-link" href="/inbox/{{ event.email_id | urlencode }}">{{ event.email_id }}</a>{% else %}-{% endif %}</td>
+              <td class="tabular">{{ event.document_id or "-" }}</td>
+              <td>{% if event.result %}<span class="status {{ event.result_class }}">{{ event.result }}</span>{% else %}<span class="status">Recorded</span>{% endif %}</td>
+              <td>{{ event.reviewer_status.replace("_", " ").title() if event.reviewer_status else "-" }}</td>
+              <td class="hash-cell">{{ event.short_hash }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination-row">
+        <span class="muted">Page {{ page }} · showing {{ events|length }} of {{ total }}</span>
+        <div class="inline-actions">
+          {% if page > 1 %}<a class="button secondary" href="{{ request.url.include_query_params(page=page-1, page_size=page_size) }}">Previous</a>{% endif %}
+          {% if page * page_size < total %}<a class="button secondary" href="{{ request.url.include_query_params(page=page+1, page_size=page_size) }}">Next</a>{% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="card empty-state"><strong>No audit events found</strong><p>Run classification, extraction, verification, or review actions to populate the trail.</p><a class="button secondary" href="/classification">Open classification</a></div>
+      {% endif %}
+    </div>
+
+    <aside class="card audit-detail-panel" aria-live="polite">
+      <div class="panel-head">
+        <div>
+          <h2 id="audit-detail-title">Event detail</h2>
+          <small id="audit-detail-subtitle">Select an event to inspect its immutable snapshot.</small>
+        </div>
+      </div>
+      <p class="notification" id="audit-detail-status"></p>
+      <div id="audit-detail-body" class="audit-detail-body">
+        <div class="empty-state"><strong>No event selected</strong><p>Choose a row from the audit table.</p></div>
+      </div>
+    </aside>
+  </section>
+{% endblock %}
+{% block scripts %}
+<script>
+  const auditRows = document.querySelectorAll("[data-audit-row]");
+  const detailTitle = document.querySelector("#audit-detail-title");
+  const detailSubtitle = document.querySelector("#audit-detail-subtitle");
+  const detailStatus = document.querySelector("#audit-detail-status");
+  const detailBody = document.querySelector("#audit-detail-body");
+  const fieldLabels = {
+    shipper: "Shipper",
+    consignee: "Consignee",
+    notify_party: "Notify Party",
+    port_of_loading: "Port of Loading",
+    port_of_discharge: "Port of Discharge",
+    container_count: "Container Count",
+    gross_weight_kg: "Gross Weight (kg)"
+  };
+
+  function text(value) {
+    return value === null || value === undefined || value === "" ? "-" : String(value);
+  }
+
+  function formatUtc(value) {
+    if (!value) return "-";
+    return value.slice(0, 16).replace("T", " ") + " UTC";
+  }
+
+  function addMetaList(parent, items) {
+    const dl = document.createElement("dl");
+    dl.className = "detail-meta audit-meta";
+    items.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = label;
+      dd.textContent = text(value);
+      row.append(dt, dd);
+      dl.appendChild(row);
+    });
+    parent.appendChild(dl);
+  }
+
+  function addSection(parent, title) {
+    const section = document.createElement("section");
+    section.className = "detail-section";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    section.appendChild(h);
+    parent.appendChild(section);
+    return section;
+  }
+
+  function renderTimeline(parent, timeline) {
+    const section = addSection(parent, "Process timestamps");
+    const list = document.createElement("ol");
+    list.className = "timeline-list";
+    (timeline || []).forEach((entry) => {
+      const item = document.createElement("li");
+      const label = document.createElement("strong");
+      const stamp = document.createElement("span");
+      const source = document.createElement("small");
+      label.textContent = entry.label;
+      stamp.textContent = formatUtc(entry.timestamp);
+      source.textContent = entry.source;
+      item.append(label, stamp, source);
+      list.appendChild(item);
+    });
+    section.appendChild(list);
+  }
+
+  function renderComparison(parent, payload) {
+    const si = payload.si || {};
+    const bl = payload.bl || {};
+    const siFields = si.display_fields || {};
+    const blFields = bl.display_fields || {};
+    const keys = Object.keys(fieldLabels);
+    if (!keys.some((key) => siFields[fieldLabels[key]] || blFields[fieldLabels[key]])) return;
+    const section = addSection(parent, "Verification snapshot");
+    const table = document.createElement("table");
+    table.className = "compare-table";
+    table.innerHTML = "<thead><tr><th>Field</th><th>SI</th><th>BL</th></tr></thead>";
+    const tbody = document.createElement("tbody");
+    const defects = new Set((payload.verification && payload.verification.defect_fields) || []);
+    const missing = new Set((payload.verification && payload.verification.missing_fields) || []);
+    keys.forEach((key) => {
+      const label = fieldLabels[key];
+      const row = document.createElement("tr");
+      if (defects.has(key) || missing.has(key)) row.className = "highlight-row";
+      [label, text(siFields[label]), text(blFields[label])].forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    section.appendChild(table);
+  }
+
+  function renderNotes(parent, verification) {
+    const section = addSection(parent, "Review details");
+    const details = verification || {};
+    addMetaList(section, [
+      ["Review reason", details.review_reason],
+      ["Missing fields", (details.missing_fields || []).map((field) => fieldLabels[field] || field).join(", ")],
+      ["Corrected fields", details.corrected_fields ? JSON.stringify(details.corrected_fields) : "-"]
+    ]);
+  }
+
+  async function loadAuditDetail(eventId) {
+    detailStatus.classList.remove("error");
+    detailStatus.textContent = "Loading event...";
+    detailBody.replaceChildren();
+    auditRows.forEach((row) => row.classList.toggle("is-selected", row.dataset.auditRow === String(eventId)));
+    try {
+      const response = await fetch(`/api/audit-events/${encodeURIComponent(eventId)}`);
+      if (!response.ok) throw new Error("Could not load audit event.");
+      const data = await response.json();
+      const payload = data.payload || {};
+      const verification = payload.verification || {};
+      detailTitle.textContent = data.event_label;
+      detailSubtitle.textContent = `#${data.id} · ${formatUtc(data.occurred_at_utc)}`;
+      detailStatus.textContent = "";
+
+      const summary = document.createElement("div");
+      addMetaList(summary, [
+        ["Actor", data.actor],
+        ["Email", data.email_id],
+        ["Document ID", data.document_id],
+        ["Extraction ID", data.extraction_id],
+        ["Verification ID", data.verification_id],
+        ["Result", data.result],
+        ["Reviewer status", data.reviewer_status]
+      ]);
+      detailBody.appendChild(summary);
+
+      if (data.verification_hash) {
+        const hashSection = addSection(detailBody, "Verification hash");
+        const hashBox = document.createElement("div");
+        hashBox.className = "hash-copy-row";
+        const code = document.createElement("code");
+        code.textContent = data.verification_hash;
+        const copy = document.createElement("button");
+        copy.className = "button secondary";
+        copy.type = "button";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(data.verification_hash);
+            copy.textContent = "Copied";
+            window.setTimeout(() => { copy.textContent = "Copy"; }, 1200);
+          } catch (_error) {
+            copy.textContent = "Copy failed";
+            window.setTimeout(() => { copy.textContent = "Copy"; }, 1400);
+          }
+        });
+        hashBox.append(code, copy);
+        hashSection.appendChild(hashBox);
+      }
+
+      renderTimeline(detailBody, data.timeline || []);
+      if (verification.id) {
+        const actionSection = addSection(detailBody, "Report");
+        const link = document.createElement("a");
+        link.className = "button secondary";
+        link.href = `/api/verification/${encodeURIComponent(data.email_id)}/report.pdf`;
+        link.textContent = "Download PDF report";
+        actionSection.appendChild(link);
+      }
+      renderComparison(detailBody, payload);
+      if (verification.id) renderNotes(detailBody, verification);
+    } catch (error) {
+      detailStatus.classList.add("error");
+      detailStatus.textContent = error.message;
+    }
+  }
+
+  document.querySelectorAll("[data-audit-target]").forEach((button) => {
+    button.addEventListener("click", () => loadAuditDetail(button.dataset.auditTarget));
+  });
+  const first = document.querySelector("[data-audit-target]");
+  if (first) loadAuditDetail(first.dataset.auditTarget);
+</script>
+{% endblock %}

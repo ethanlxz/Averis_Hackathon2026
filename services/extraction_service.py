@@ -15,6 +15,7 @@ from services.field_normalizer import normalize_shipment_json
 from services.inbox_service import InboxService
 from services.llm_service import LLMService
 from services.ocr_service import OCRService
+from services.audit_service import record_extraction
 
 
 class ExtractionService:
@@ -62,9 +63,9 @@ class ExtractionService:
             if document.document_type not in ("SI", "BL"):
                 continue
             record = self.extract_document(db, email, document)
+            record_extraction(db, email, document, record)
             extractions.append(self.serialize(record))
 
-        db.commit()
         return {
             "email_id": email.email_id,
             "category": email.category,

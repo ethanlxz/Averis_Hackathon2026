@@ -13,6 +13,7 @@ from models.document import Document
 from models.email_message import EmailMessage, utc_now
 from services.email_classifier import EmailClassifier
 from services.input_importer import infer_document_type
+from services.audit_service import record_classification, record_document_registration
 
 
 router = APIRouter(tags=["upload"])
@@ -55,9 +56,12 @@ async def upload_documents(
 
     email_record = _upsert_email(db, email)
     for attachment_path in attachment_paths:
-        _upsert_document(db, email_id, attachment_path)
+        document, created = _upsert_document(db, email_id, attachment_path)
+        if created:
+            record_document_registration(db, email_record, document)
 
     _classify_email(email_record, attachment_paths)
+    record_classification(db, email_record)
 
     db.commit()
     return RedirectResponse(url=f"/inbox/{email_id}", status_code=303)
@@ -130,12 +134,17 @@ def _classify_email(record: EmailMessage, attachment_paths: list[str]) -> None:
     record.classified_at = utc_now()
 
 
-def _upsert_document(db: Session, email_id: str, attachment_path: str) -> Document:
+def _upsert_document(
+    db: Session,
+    email_id: str,
+    attachment_path: str,
+) -> tuple[Document, bool]:
     record = (
         db.query(Document)
         .filter(Document.attachment_path == attachment_path)
         .one_or_none()
     )
+    created = record is None
     if record is None:
         record = Document(attachment_path=attachment_path)
         db.add(record)
@@ -148,4 +157,4 @@ def _upsert_document(db: Session, email_id: str, attachment_path: str) -> Docume
     record.file_extension = path.suffix.lower().lstrip(".") or "unknown"
     record.file_size_bytes = full_path.stat().st_size if full_path.exists() else None
     record.status = "uploaded"
-    return record
+    return record, created

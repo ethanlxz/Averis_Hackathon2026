@@ -24,6 +24,7 @@ def init_db() -> None:
     import models.document  # noqa: F401
     import models.extraction  # noqa: F401
     import models.verification  # noqa: F401
+    import models.audit_event  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _ensure_email_classification_columns()
@@ -121,6 +122,7 @@ def _ensure_verification_columns() -> None:
         "verification_hash": (
             "ALTER TABLE verifications ADD COLUMN verification_hash VARCHAR(64)"
         ),
+        "reviewed_at": "ALTER TABLE verifications ADD COLUMN reviewed_at DATETIME",
     }
 
     with engine.begin() as connection:

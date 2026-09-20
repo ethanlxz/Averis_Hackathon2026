@@ -8,6 +8,7 @@ from models.document import Document
 from models.email_message import EmailMessage
 from models.verification import Verification
 from services.classification_workbench import get_classification_view_model
+from services.audit_service import list_events
 
 
 router = APIRouter(tags=["dashboard"])
@@ -112,4 +113,58 @@ def document_library(request: Request, db: Session = Depends(get_db)):
         request,
         "library.html",
         {"documents": documents, "active_page": "library"},
+    )
+
+
+@router.get("/audit", response_class=HTMLResponse)
+def audit_trail(
+    request: Request,
+    event_type: str | None = None,
+    result: str | None = None,
+    reviewer_status: str | None = None,
+    email_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+):
+    error = None
+    try:
+        audit = list_events(
+            db,
+            event_type=event_type,
+            result=result,
+            reviewer_status=reviewer_status,
+            email_id=email_id,
+            search=q,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+        )
+    except ValueError as exc:
+        error = str(exc)
+        audit = list_events(db)
+
+    filters = {
+        "event_type": event_type or "",
+        "result": result or "",
+        "reviewer_status": reviewer_status or "",
+        "email_id": email_id or "",
+        "q": q or "",
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+    }
+
+    return templates.TemplateResponse(
+        request,
+        "audit.html",
+        {
+            **audit,
+            "filters": filters,
+            "error": error,
+            "active_page": "audit",
+        },
     )

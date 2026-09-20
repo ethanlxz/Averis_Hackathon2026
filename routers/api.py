@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from models.audit_event import AuditEvent
 from models.document import Document
 from models.email_message import EmailMessage, utc_now
 from models.extraction import Extraction
@@ -14,6 +15,7 @@ from services.extraction_service import ExtractionService
 from services.input_importer import InputDataImporter, reset_database
 from services.pdf_report import generate_report
 from services.verification_service import VerificationService, serialize_verification
+from services.audit_service import list_events, record_classification, serialize_detail
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -55,9 +57,48 @@ def classify_imported_emails(db: Session = Depends(get_db)) -> dict[str, int | s
         email.classification_confidence = result.confidence
         email.classification_source = result.source
         email.classified_at = utc_now()
+        record_classification(db, email)
 
     db.commit()
     return {"status": "classified", "emails": len(emails)}
+
+
+@router.get("/audit-events")
+def audit_events(
+    event_type: str | None = None,
+    result: str | None = None,
+    reviewer_status: str | None = None,
+    email_id: str | None = None,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    page: int = Query(default=1),
+    page_size: int = Query(default=50),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return list_events(
+            db,
+            event_type=event_type,
+            result=result,
+            reviewer_status=reviewer_status,
+            email_id=email_id,
+            search=q,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/audit-events/{event_id}")
+def audit_event_detail(event_id: int, db: Session = Depends(get_db)) -> dict:
+    event = db.get(AuditEvent, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Audit event not found")
+    return serialize_detail(db, event)
 
 
 @router.post("/import-input-data")
