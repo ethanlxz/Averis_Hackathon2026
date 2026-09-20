@@ -1,8 +1,9 @@
 # Averis Project Structure
 
 Use this as the quick orientation map before changing code. The app is a FastAPI
-MVP for classifying shipping emails, importing hackathon inbox data, tracking
-documents, and preparing later SI/BL verification phases.
+MVP that imports the hackathon inbox, classifies shipping emails, extracts
+SI/BL shipment fields (TXT / DOCX / PDF / XLSX + OCR), validates the extraction,
+and compares SI vs BL (implemented as a service, not yet exposed via an endpoint).
 
 ## Start Here
 
@@ -10,12 +11,16 @@ documents, and preparing later SI/BL verification phases.
   database on startup, mounts static files, and includes all routers.
 - `app/config.py` loads configurable settings from `.env` and environment
   variables. Real environment variables override `.env` values.
-- `app/database.py` owns the SQLAlchemy engine/session setup and table creation.
+- `app/database.py` owns the SQLAlchemy engine/session setup, table creation,
+  and SQLite column migrations.
 - `routers/api.py` contains machine-facing endpoints for import, classification,
-  and classification summaries.
-- `GET /classification` is the human workbench for browsing classified emails.
-- `services/email_classifier.py` contains the high-level classification decision
-  flow.
+  extraction, and classification summaries.
+- `GET /classification` is the human workbench for browsing, searching, and
+  extracting classified emails.
+- `services/email_classifier.py` contains the high-level classification flow.
+- `services/extraction_service.py` orchestrates the document-extraction pipeline.
+- `services/comparison_engine.py` + `services/field_normalizer.py` implement
+  SI vs BL comparison.
 
 ## Directory Map
 
@@ -24,37 +29,49 @@ Averis_Project/
 ├── app/
 │   ├── main.py              FastAPI app setup, router registration, health check
 │   ├── config.py            .env loading and Settings model
-│   └── database.py          SQLAlchemy engine, sessions, init_db
+│   └── database.py          SQLAlchemy engine, sessions, init_db, migrations
 ├── models/
 │   ├── email_message.py     EmailMessage ORM model and classification fields
 │   ├── document.py          Document ORM model for imported/uploaded attachments
-│   └── verification.py      Verification ORM model for later comparison results
+│   ├── extraction.py        Extraction ORM model (per-document field extraction)
+│   └── verification.py      Verification ORM model for SI/BL comparison results
 ├── routers/
-│   ├── dashboard.py         HTML dashboard and classification workbench
+│   ├── dashboard.py         HTML dashboard, classification workbench (+ search)
 │   ├── upload.py            HTML upload page and upload handling
 │   ├── emails.py            JSON email list/detail endpoints
 │   ├── documents.py         JSON document list endpoint
-│   └── api.py               Import, classify, and reclassify API endpoints
+│   └── api.py               Import, classify, extract API endpoints
 ├── services/
-│   ├── classification_schema.py  Category constants and ClassificationResult
-│   ├── classification_workbench.py  Grouped data for the classification UI
-│   ├── email_classifier.py       DeepSeek-first classifier plus rule fallback tools
-│   ├── llm_service.py            DeepSeek API integration
-│   ├── input_importer.py         Imports root bundle inbox/attachments into SQLite
-│   ├── inbox_service.py          Wrapper around root loader.py
-│   ├── comparison_engine.py      SI vs BL field comparison scaffold
-│   ├── document_parser.py        Future document extraction seam
-│   └── ocr_service.py            Future OCR seam
+│   ├── classification_schema.py    Category constants and ClassificationResult
+│   ├── classification_workbench.py Grouped/searchable data for the UI
+│   ├── email_classifier.py         DeepSeek-first classifier plus rule fallback
+│   ├── llm_service.py              DeepSeek API (classify + shipment-field extraction)
+│   ├── input_importer.py           Imports root bundle inbox/attachments into SQLite
+│   ├── inbox_service.py            Wrapper around root loader.py
+│   ├── document_parser.py          Document-type detection + text/field extraction
+│   ├── ocr_service.py              EasyOCR + PyMuPDF OCR for scanned PDFs/images
+│   ├── document_validator.py       Extraction error/warning validation
+│   ├── extraction_service.py       Extraction pipeline orchestration + persistence
+│   ├── field_normalizer.py         Normalizes names, ports, counts, weights
+│   └── comparison_engine.py        SI vs BL comparison (uses field_normalizer)
 ├── scripts/
-│   └── import_input_data.py      CLI wrapper for importing inbox data
+│   └── import_input_data.py        CLI wrapper for importing inbox data
 ├── templates/
-│   ├── dashboard.html       Dashboard UI
-│   ├── classification.html  Classified email workbench
-│   └── upload.html          Upload UI
+│   ├── base.html             Layout shell
+│   ├── dashboard.html        Dashboard UI
+│   ├── classification.html   Classified email workbench (search + extraction UI)
+│   ├── inbox.html            Inbox list
+│   ├── inbox_detail.html     Single email detail
+│   ├── library.html          Document library
+│   └── upload.html           Upload UI
 ├── static/
-│   └── styles.css           Shared page styling
+│   ├── styles.css            Shared page styling
+│   ├── app.js                Shared client-side behavior
+│   └── icons.svg             SVG icon sprite
 ├── tests/
-│   └── test_email_classification.py  Unit tests for classification behavior
+│   ├── test_email_classification.py   Classification unit tests
+│   ├── test_classification_workbench.py  Workbench view-model tests
+│   └── test_field_normalizer.py       Normalization/comparison tests
 ├── .env                     Local secrets/config, ignored by git
 ├── .env.example             Safe template of supported config values
 ├── requirements.txt         Python dependencies
@@ -68,24 +85,21 @@ Averis_Project/
 1. `uvicorn app.main:app --reload`
 2. `app/main.py` loads `settings = get_settings()` from `app/config.py`.
 3. Startup lifespan creates `settings.upload_dir`.
-4. Startup calls `init_db()` from `app/database.py`.
+4. Startup calls `init_db()` from `app/database.py`, which creates all tables and
+   applies SQLite column migrations (`_ensure_email_classification_columns`,
+   `_ensure_extraction_columns`).
 5. Routers from `routers/` are mounted on the FastAPI app.
 
 ### Configuration Flow
 
 1. `.env` is read by `app/config.py`.
 2. Values are copied into `os.environ` only if they are not already set.
-3. `Settings` exposes:
-   - `APP_NAME`
-   - `APP_VERSION`
-   - `DATABASE_URL`
-   - `DATA_SOURCE`
-   - `UPLOAD_DIR`
-   - `DEEPSEEK_API_KEY`
-   - `DEEPSEEK_BASE_URL`
-   - `DEEPSEEK_MODEL`
-   - `DEEPSEEK_TIMEOUT_SECONDS`
+3. `Settings` exposes `APP_NAME`, `APP_VERSION`, `DATABASE_URL`, `DATA_SOURCE`,
+   `UPLOAD_DIR`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`,
+   `DEEPSEEK_TIMEOUT_SECONDS`.
 4. `services/llm_service.py` uses the DeepSeek settings.
+5. `services/ocr_service.py` reads `OCR_LANG` directly from the environment
+   (default `"en"`).
 
 ### Import Bundle Data
 
@@ -100,12 +114,10 @@ Code path:
 ```text
 routers/api.py
 └── InputDataImporter.import_all()
-    ├── InboxService.list_emails()
-    │   └── root loader.py reads inbox/*.json
-    ├── _upsert_email() -> models/email_message.py
-    ├── _upsert_document() -> models/document.py
-    └── _classify_email()
-        └── EmailClassifier.classify()
+    ├── InboxService.list_emails()   -> root loader.py reads inbox/*.json
+    ├── _upsert_email()              -> models/email_message.py
+    ├── _upsert_document()           -> models/document.py
+    └── _classify_email()            -> EmailClassifier.classify()
 ```
 
 CLI equivalent:
@@ -130,14 +142,10 @@ Code path:
 ```text
 routers/api.py
 └── EmailClassifier.classify()
-    ├── if DEEPSEEK_API_KEY is missing:
-    │   └── returns category=null, source=missing_ai_key,
-    │       reason="AI key not included"
-    ├── if key exists:
-    │   └── LLMService.classify_email()
-    │       └── POST {DEEPSEEK_BASE_URL}/chat/completions
-    └── if DeepSeek fails or returns invalid category:
-        └── rule result is stored with source=rules_fallback
+    ├── no DEEPSEEK_API_KEY   -> category=null, source=missing_ai_key
+    ├── key present           -> LLMService.classify_email()
+    │                           POST {DEEPSEEK_BASE_URL}/chat/completions
+    └── DeepSeek fails/invalid -> rule result, source=rules_fallback
 ```
 
 Rule-only behavior is still available through
@@ -145,11 +153,12 @@ Rule-only behavior is still available through
 
 ### Classified Email Workbench
 
-Endpoint/UI:
+Endpoints:
 
 ```text
 GET /classification
 GET /classification?category=SI_REQUEST
+GET /classification?q=<search>
 ```
 
 Code path:
@@ -160,33 +169,28 @@ routers/dashboard.py
     └── services/classification_workbench.py
         ├── groups official categories
         ├── separates missing-key/null-category emails
-        └── prepares Phase 5-10 placeholder pipeline stages
+        ├── builds per-email extraction pipeline stages
+        ├── collects extraction errors/warnings for the UI
+        └── searches across all categories via ?q=
 ```
 
-The default category is `BL_COMPARISON` because it feeds the document
-verification pipeline.
+The default category is `BL_COMPARISON`. The detail panel shows a four-stage
+document pipeline (Attachment Processing → Document Type Detection →
+Text/OCR Extraction → Structured Shipment JSON), per-attachment extraction
+status badges, an "Extraction issues" list, and an "Extract all text" button.
 
 ### Manual Upload Flow
 
-Endpoint/UI:
+Endpoints:
 
 ```text
 GET  /upload
 POST /upload
 ```
 
-Code path:
-
-```text
-routers/upload.py
-├── reads uploaded email JSON
-├── saves SI/BL files into UPLOAD_DIR
-├── _upsert_email() -> EmailMessage
-├── _upsert_document() -> Document
-└── _classify_email() -> EmailClassifier
-```
-
-Uploads are classified the same way imported emails are classified.
+Code path: `routers/upload.py` reads the uploaded email JSON, saves SI/BL files
+into `UPLOAD_DIR`, upserts `EmailMessage`/`Document`, and classifies the email
+the same way imported emails are classified.
 
 ### Email and Document Viewing
 
@@ -205,21 +209,78 @@ routers/emails.py      returns EmailMessage data plus classification fields
 routers/documents.py   returns Document rows
 ```
 
-Key output fields for classification:
+### Document Extraction Pipeline
+
+Endpoints:
 
 ```text
-category
-classification_confidence
-classification_source
-classified_at
+POST /api/extract/{email_id}   extract one email's SI/BL attachments
+POST /api/extract-all          extract every email that has SI/BL attachments
+GET  /api/extractions          list stored extraction records
 ```
+
+Code path:
+
+```text
+routers/api.py
+└── ExtractionService.process_email()
+    └── extract_document() per SI/BL document
+        ├── read bytes (InboxService, then PROJECT_ROOT fallback)
+        ├── DocumentParser.extract_text()
+        │   ├── TXT   -> decode
+        │   ├── DOCX  -> stdlib zip/XML
+        │   ├── PDF   -> pdfplumber/pypdf/PyMuPDF text, else EasyOCR (pdf_ocr)
+        │   ├── XLSX  -> stdlib zip/XML
+        │   └── image -> EasyOCR (ocr)
+        ├── DocumentParser.parse_text() -> ShipmentFields
+        │   ("Label: value" recognition + field_normalizer count/weight parsing)
+        ├── LLM fill gaps (extract_shipment_fields) when incomplete -> "+llm"
+        ├── DocumentValidator.validate() -> status/errors/warnings
+        └── upsert Extraction (id, extraction_method, processed_at, ...)
+```
+
+`ShipmentFields` holds the seven fields: shipper, consignee, notify_party,
+port_of_loading, port_of_discharge, container_count, gross_weight_kg. Display
+keys map to Shipper / Consignee / Notify Party / Port of Loading / Port of
+Discharge / Container Count / Gross Weight (kg).
+
+### Extraction Validation
+
+`services/document_validator.py` produces a `ValidationResult` persisted on each
+`Extraction` row (`status`, `detected_document_type`, `errors`, `warnings`).
+
+- `detect_document_class()` (in `document_parser.py`) classifies content as
+  INVOICE / SI / BL.
+- Error codes: `empty_text`, `wrong_document_type`, `unrecognized_layout`.
+- Warning codes: `missing_field`, `document_type_mismatch`.
+- `status` is `error` / `warning` / `ok`.
+
+### SI/BL Comparison (implemented, not yet exposed)
+
+`services/comparison_engine.py` compares SI and BL `ShipmentFields` using
+`services/field_normalizer.py`:
+
+- party names (shipper/consignee/notify) via `names_match` (fuzzy + legal-suffix
+  synonyms)
+- ports via `compare_ports` (LOCODE + city/country, `needs_review` for
+  code/city inconsistencies)
+- container count via `parse_container_count`
+- gross weight via `parse_gross_weight_kg` (kg conversion + tolerance)
+
+Returns `status` (OK / MISMATCH / NEEDS_REVIEW), `has_defect`, `defect_fields`,
+`mismatch_details`, `missing_fields`, `review_reason`, `review_details`.
+Covered by `tests/test_field_normalizer.py`; no endpoint or UI is wired yet.
 
 ## Data Model Links
 
 - `EmailMessage` has many `Document` rows through `email_id`.
+- `EmailMessage` has many `Extraction` rows through `email_id`.
 - `EmailMessage` has many `Verification` rows through `email_id`.
+- `Document` has many `Extraction` rows through `document_id`.
 - `Document` may have many `Verification` rows through `document_id`.
-- `Verification` is intended for later SI/BL comparison status, mismatch fields,
+- `Extraction` stores one document's extracted fields plus validation metadata
+  (status, detected type, errors, warnings, method, processed_at).
+- `Verification` is intended for SI/BL comparison status, mismatch fields,
   confidence, and reviewer status.
 
 ## Hackathon Bundle Links
@@ -239,7 +300,7 @@ The parent folder contains the input bundle:
 ## Common Commands
 
 ```powershell
-# Run app
+# Run app (from Averis_Project)
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 
 # Import/reimport bundle data
@@ -255,13 +316,17 @@ The parent folder contains the input bundle:
 ## Agent Notes
 
 - Do not commit `.env`, `averis.db`, `uploads/`, `.venv/`, or `__pycache__/`.
+- Run the app from `Averis_Project` — `DATABASE_URL` is `sqlite:///./averis.db`
+  and resolves relative to the current working directory.
 - Add new user-facing API routes in `routers/api.py` unless they are HTML page
   routes.
-- Add persistent entities in `models/`, then ensure `app/database.py` imports
-  the model in `init_db()`.
+- Add persistent entities in `models/`, import them in `app/database.py`
+  `init_db()`, and add a `_ensure_*_columns()` migration for new columns on an
+  existing table.
 - Put business logic in `services/`, not directly in routers.
 - Keep category names exactly as the hackathon contract expects:
   `BL_COMPARISON`, `SI_REQUEST`, `INVOICE_QUERY`, `GENERAL`, `SPAM`.
-- The comparison/extraction phases are scaffolded but not complete yet; prefer
-  extending `services/document_parser.py`, `services/comparison_engine.py`, and
-  `models/verification.py` for those phases.
+- OCR uses EasyOCR + PyMuPDF (no external binary); the first use downloads models
+  to `~/.EasyOCR`. Scanned PDFs have no text layer and rely on this path.
+- Comparison logic lives in `comparison_engine.py` + `field_normalizer.py` and is
+  unit-tested but not yet wired to an endpoint or the UI.
