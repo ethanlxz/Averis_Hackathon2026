@@ -76,6 +76,9 @@ def _ensure_extraction_columns() -> None:
         ),
         "errors": "ALTER TABLE extractions ADD COLUMN errors JSON",
         "warnings": "ALTER TABLE extractions ADD COLUMN warnings JSON",
+        "normalized_fields": (
+            "ALTER TABLE extractions ADD COLUMN normalized_fields JSON"
+        ),
     }
 
     with engine.begin() as connection:

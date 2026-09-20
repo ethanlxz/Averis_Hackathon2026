@@ -135,6 +135,17 @@ h3 { margin-bottom: 0; font-size: 14px; font-weight: 600; }
 .file-list li span, .pipeline-list li span { min-width: 0; overflow-wrap: anywhere; }
 .file-list small, .pipeline-list small { flex: none; color: var(--muted); font-size: 12px; }
 .file-badges { display: inline-flex; flex: none; align-items: center; gap: 8px; }
+.file-button { min-width: 0; overflow-wrap: anywhere; padding: 0; border: 0; background: transparent; color: var(--brand); font-weight: 600; text-align: left; cursor: pointer; }
+.file-button:hover { text-decoration: underline; }
+.compare-modal { width: min(760px, 92vw); max-width: none; padding: 0; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 64px rgb(0 0 0 / 22%); }
+.compare-modal::backdrop { background: rgb(17 17 19 / 40%); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.modal-head h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.modal-body { padding: 18px; max-height: 72vh; overflow: auto; }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.compare-table th, .compare-table td { padding: 8px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.compare-table thead th { background: var(--subtle); color: var(--muted); font-size: 12px; font-weight: 600; }
+.compare-table td.diff { background: #fff6e5; }
 .issue-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .issue-list .issue { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .issue-list .issue strong { display: block; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }

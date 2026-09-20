@@ -74,7 +74,7 @@
         <section class="detail-section"><h3>Message preview</h3><p>{{ email.body_preview or "No message body." }}</p></section>
         <section class="detail-section"><h3>Attachments</h3>
           {% if email.documents %}
-          <ul class="file-list">{% for document in email.documents %}<li data-document-id="{{ document.id }}"><span>{{ document.filename }}</span><span class="file-badges"><small data-doc-type>{{ document.document_type }} · {{ document.status }}</small>{% if document.extraction_status %}<small class="status {{ document.extraction_status_class }}" data-extraction-badge>{{ document.extraction_status }}</small>{% endif %}{% if document.detected_document_type and document.detected_document_type != document.document_type %}<small class="status danger" data-detected-badge>{{ document.detected_document_type }}</small>{% endif %}</span></li>{% endfor %}</ul>
+          <ul class="file-list">{% for document in email.documents %}<li data-document-id="{{ document.id }}"><button class="file-button" type="button" data-attachment-open data-document-id="{{ document.id }}">{{ document.filename }}</button><span class="file-badges"><small data-doc-type>{{ document.document_type }} · {{ document.status }}</small>{% if document.extraction_status %}<small class="status {{ document.extraction_status_class }}" data-extraction-badge>{{ document.extraction_status }}</small>{% endif %}{% if document.detected_document_type and document.detected_document_type != document.document_type %}<small class="status danger" data-detected-badge>{{ document.detected_document_type }}</small>{% endif %}</span></li>{% endfor %}</ul>
           {% else %}<p class="muted">No attachments recorded.</p>{% endif %}
         </section>
         {% if selected_category == bl_category %}
@@ -121,6 +121,14 @@
     </table></div>
   </section>
   {% endif %}
+  <script type="application/json" id="extraction-data">{{ extraction_data_json | safe }}</script>
+  <dialog class="compare-modal" id="compare-modal">
+    <div class="modal-head">
+      <h2 data-modal-title>Attachment</h2>
+      <button class="icon-button" type="button" data-modal-close aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" data-modal-body></div>
+  </dialog>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -238,7 +246,7 @@
     const issues = [];
     (extractions || []).forEach((item) => {
       const li = article.querySelector(`li[data-document-id="${item.document_id}"]`);
-      const filename = li ? li.querySelector("span:first-child").textContent : item.document_type;
+      const filename = li ? li.querySelector("[data-attachment-open]").textContent : item.document_type;
       (item.errors || []).forEach((error) => issues.push({
         severity: "error", filename, code: error.code, detail: error.detail, field: error.field,
       }));
@@ -260,6 +268,86 @@
     section.hidden = issues.length === 0;
   }
 
+  const compareFieldNames = ["Shipper", "Consignee", "Notify Party", "Port of Loading", "Port of Discharge", "Container Count", "Gross Weight (kg)"];
+  const extractionData = JSON.parse(document.querySelector("#extraction-data").textContent || "{}");
+  const compareModal = document.querySelector("#compare-modal");
+  const modalTitle = document.querySelector("[data-modal-title]");
+  const modalBody = document.querySelector("[data-modal-body]");
+
+  function openAttachmentModal(docId) {
+    const entry = extractionData[String(docId)];
+    modalTitle.textContent = entry ? entry.filename : "Attachment";
+    modalBody.replaceChildren();
+
+    if (!entry) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "Attachments not yet processed. Press “Extract all text” first.";
+      modalBody.appendChild(p);
+      compareModal.showModal();
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.className = "compare-table";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["Field", "Extracted", "Normalized"].forEach((label) => {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    compareFieldNames.forEach((field) => {
+      const raw = entry.fields ? entry.fields[field] : null;
+      const norm = entry.normalized_fields ? entry.normalized_fields[field] : null;
+      const tr = document.createElement("tr");
+      const th = document.createElement("th");
+      th.scope = "row";
+      th.textContent = field;
+      const tdRaw = document.createElement("td");
+      tdRaw.textContent = raw || "—";
+      const tdNorm = document.createElement("td");
+      tdNorm.textContent = norm || "—";
+      if (raw && norm && raw !== norm) {
+        tdRaw.classList.add("diff");
+        tdNorm.classList.add("diff");
+      }
+      tr.append(th, tdRaw, tdNorm);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    modalBody.appendChild(table);
+    compareModal.showModal();
+  }
+
+  function updateExtractionData(emailId, extractions) {
+    const article = document.querySelector(`[data-email-detail="${emailId}"]`);
+    (extractions || []).forEach((item) => {
+      const li = article ? article.querySelector(`li[data-document-id="${item.document_id}"]`) : null;
+      const filename = li ? li.querySelector("[data-attachment-open]").textContent : item.document_type;
+      extractionData[String(item.document_id)] = {
+        filename,
+        document_type: item.document_type,
+        extraction_method: item.extraction_method,
+        fields: item.fields || {},
+        normalized_fields: item.normalized_fields || {},
+      };
+    });
+  }
+
+  document.querySelectorAll("[data-attachment-open]").forEach((button) => {
+    button.addEventListener("click", () => openAttachmentModal(button.dataset.documentId));
+  });
+
+  document.querySelector("[data-modal-close]").addEventListener("click", () => compareModal.close());
+  compareModal.addEventListener("click", (event) => {
+    if (event.target === compareModal) compareModal.close();
+  });
+
   document.querySelectorAll("[data-extract-button]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       const emailId = button.dataset.emailId;
@@ -275,6 +363,7 @@
         updatePipeline(emailId, data.extractions);
         updateBadges(emailId, data.extractions);
         updateIssues(emailId, data.extractions);
+        updateExtractionData(emailId, data.extractions);
         label.textContent = "Extract again";
         if (status) status.textContent = `Done — ${data.extractions.length} document(s) processed.`;
       } catch (error) {

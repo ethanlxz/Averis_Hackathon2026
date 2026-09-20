@@ -31,6 +31,7 @@ class Extraction(Base):
     document_type = Column(String(50), nullable=False, index=True)  # "SI" or "BL"
     extraction_method = Column(String(50), nullable=False, index=True)
     fields = Column(JSON, nullable=False, default=dict)
+    normalized_fields = Column(JSON, nullable=False, default=dict)
     status = Column(String(50), nullable=False, default="pending", index=True)
     detected_document_type = Column(String(50), nullable=True, index=True)
     errors = Column(JSON, nullable=False, default=list)

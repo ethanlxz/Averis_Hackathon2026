@@ -1,9 +1,11 @@
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session, selectinload
 
 from models.email_message import EmailMessage
 from services.classification_schema import ALLOWED_CATEGORIES, BL_COMPARISON
+from services.document_parser import snake_to_display
 
 
 CATEGORY_LABELS = {
@@ -137,10 +139,20 @@ def build_classification_view_model(
     groups = {category: [] for category in ALLOWED_CATEGORIES}
     needs_classification = []
     search_results = []
+    extraction_lookup: dict[str, Any] = {}
     query = (search_query or "").strip()
 
     for email in emails:
         item = serialize_email(email)
+        for document in item["documents"]:
+            if document.get("extraction_method"):
+                extraction_lookup[str(document["id"])] = {
+                    "filename": document["filename"],
+                    "document_type": document["document_type"],
+                    "extraction_method": document.get("extraction_method"),
+                    "fields": document.get("fields"),
+                    "normalized_fields": document.get("normalized_fields"),
+                }
         if query and _search_matches(item, query):
             search_results.append(item)
         if needs_classification_bucket(email):
@@ -177,6 +189,7 @@ def build_classification_view_model(
         "search_query": search_query,
         "search_results": search_results,
         "search_active": bool(query),
+        "extraction_data_json": json.dumps(extraction_lookup).replace("<", "\\u003c"),
     }
 
 
@@ -241,6 +254,17 @@ def serialize_email(email: EmailMessage) -> dict[str, Any]:
                 "extraction_status_class": _status_class(extraction_status),
                 "detected_document_type": (
                     extraction.detected_document_type if extraction else None
+                ),
+                "extraction_method": (
+                    extraction.extraction_method if extraction else None
+                ),
+                "fields": (
+                    snake_to_display(extraction.fields)
+                    if extraction and extraction.fields
+                    else None
+                ),
+                "normalized_fields": (
+                    extraction.normalized_fields if extraction else None
                 ),
             }
         )

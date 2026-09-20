@@ -11,6 +11,7 @@ from models.email_message import EmailMessage
 from models.extraction import Extraction, utc_now
 from services.document_parser import DocumentParser, ShipmentFields, snake_to_display
 from services.document_validator import DocumentValidator, ValidationResult
+from services.field_normalizer import normalize_shipment_json
 from services.inbox_service import InboxService
 from services.llm_service import LLMService
 from services.ocr_service import OCRService
@@ -111,6 +112,7 @@ class ExtractionService:
         record.document_type = document.document_type
         record.extraction_method = method
         record.fields = fields.to_dict()
+        record.normalized_fields = normalize_shipment_json(fields.to_display_dict())
         record.status = validation.status
         record.detected_document_type = validation.detected_document_type
         record.errors = validation.errors
@@ -136,6 +138,7 @@ class ExtractionService:
                 record.processed_at.isoformat() if record.processed_at else None
             ),
             "fields": snake_to_display(record.fields or {}),
+            "normalized_fields": record.normalized_fields or {},
         }
 
     # -- helpers --------------------------------------------------------
