@@ -6,8 +6,64 @@ import re
 import zipfile
 from pathlib import Path
 from typing import Callable
-
 from pydantic import BaseModel
+
+from services.field_normalizer import (
+    normalize_whitespace_unicode,
+    parse_container_count,
+    parse_gross_weight_kg,
+)
+
+
+# snake_case key -> human display key used in the expected output.
+DISPLAY_FIELDS = (
+    ("shipper", "Shipper"),
+    ("consignee", "Consignee"),
+    ("notify_party", "Notify Party"),
+    ("port_of_loading", "Port of Loading"),
+    ("port_of_discharge", "Port of Discharge"),
+    ("container_count", "Container Count"),
+    ("gross_weight_kg", "Gross Weight (kg)"),
+)
+
+SNAKE_FIELDS = tuple(snake for snake, _ in DISPLAY_FIELDS)
+
+FIELD_PATTERNS = {
+    "shipper": re.compile(
+        r"^\s*SHIPPER(?:\s*/\s*EXPORTER)?\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    "consignee": re.compile(
+        r"^\s*CONSIGNEE(?:\s*\([^)\n]*\))?\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    "notify_party": re.compile(
+        r"^\s*(?:NOTIFY(?:\s+PARTY)?)\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    "port_of_loading": re.compile(
+        r"^\s*(?:PORT\s+OF\s+LOADING(?:\s*\(\s*POL\s*\))?|LOAD\s+PORT|POL)\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    "port_of_discharge": re.compile(
+        r"^\s*(?:PORT\s+OF\s+DISCHARGE|DISCHARGE\s+PORT|POD)\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    "container_count": re.compile(
+        r"^\s*(?:CONTAINER\s+COUNT|TOTAL\s+CONTAINERS?|NO\.?\s+OF\s+CONTAINERS?(?:\s+OR\s+PACKAGES)?)\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    "gross_weight_kg": re.compile(
+        r"^\s*GROSS\s+(?:WT|WEIGHT)(?:\s*\(\s*(?:KGS?|KG)\s*\))?\s*:\s*(.+?)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+}
+
+TEXT_EXTENSIONS = {"txt", "text"}
+DOCX_EXTENSIONS = {"docx"}
+PDF_EXTENSIONS = {"pdf"}
+XLSX_EXTENSIONS = {"xlsx", "xls", "xlsm"}
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"}
 
 
 # snake_case key -> human display key used in the expected output.
@@ -91,6 +147,33 @@ def _clean(value: str | None) -> str | None:
         return None
     cleaned = re.sub(r"\s+", " ", value).strip()
     return cleaned or None
+
+# A line is a candidate "Label: value" pair only if it doesn't start with
+# whitespace -- address/continuation lines in these documents are always
+# indented and semicolon-delimited (no colon), so they never match.
+_LABEL_LINE_RE = re.compile(r"^(\S[^:]*):\s*(.*)$")
+
+
+def _canonical_field_for_label(label: str) -> str | None:
+    text = label.strip().upper()
+
+    if "NOTIFY" in text:
+        return "notify_party"
+    if "TO THE ORDER OF" in text:
+        return "consignee"
+    if "CONSIGNEE" in text:
+        return "consignee"
+    if "SHIPPER" in text:
+        return "shipper"
+    if "PORT OF LOADING" in text or "LOAD PORT" in text or text == "POL":
+        return "port_of_loading"
+    if "PORT OF DISCHARGE" in text or "DISCHARGE PORT" in text or text == "POD":
+        return "port_of_discharge"
+    if "CONTAINER" in text:
+        return "container_count"
+    if "GROSS WEIGHT" in text or "GROSS WT" in text:
+        return "gross_weight_kg"
+    return None
 
 
 # Ordered content markers for detecting the *semantic* document class from the
@@ -180,8 +263,11 @@ class DocumentParser:
             return text, "ocr"
         return self._decode(bytes_data), "unknown"
 
+      
     # -- field parsing --------------------------------------------------
     def parse_text(self, text: str) -> ShipmentFields:
+        raw_values: dict[str, str] = {}
+    
         if not text:
             return ShipmentFields()
 
@@ -202,7 +288,33 @@ class DocumentParser:
                     values[snake] = value
                 break  # first matching label wins
 
-        return ShipmentFields(**values)
+        for line in text.splitlines():
+            match = _LABEL_LINE_RE.match(line)
+            if not match:
+                continue
+
+            label, value = match.groups()
+            value = value.strip()
+            if not value:
+                continue
+
+            field = _canonical_field_for_label(label)
+            if field and field not in raw_values:
+                raw_values[field] = value
+
+        fields: dict[str, str | None] = {}
+        for field in ("shipper", "consignee", "notify_party", "port_of_loading", "port_of_discharge"):
+            if field in raw_values:
+                fields[field] = normalize_whitespace_unicode(raw_values[field])
+
+        if "container_count" in raw_values:
+            count = parse_container_count(raw_values["container_count"])
+            fields["container_count"] = None if count is None else str(count)
+        if "gross_weight_kg" in raw_values:
+            weight = parse_gross_weight_kg(raw_values["gross_weight_kg"])
+            fields["gross_weight_kg"] = None if weight is None else str(weight)
+
+        return ShipmentFields(**fields)
 
     @staticmethod
     def _value_from_rest(rest: str) -> str | None:
