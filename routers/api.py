@@ -1,14 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from models.document import Document
 from models.email_message import EmailMessage, utc_now
 from models.extraction import Extraction
+from models.verification import Verification
 from services.email_classifier import EmailClassifier
 from services.classification_workbench import classification_summary
+from services.document_parser import snake_to_display
 from services.extraction_service import ExtractionService
 from services.input_importer import InputDataImporter, reset_database
+from services.pdf_report import generate_report
+from services.verification_service import VerificationService, serialize_verification
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -87,7 +92,11 @@ def extract_email(email_id: str, db: Session = Depends(get_db)) -> dict:
     if email is None:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    return ExtractionService().process_email(db, email)
+    result = ExtractionService().process_email(db, email)
+    verification = VerificationService().verify_email(db, email)
+    db.commit()
+    result["verification"] = serialize_verification(verification)
+    return result
 
 
 @router.post("/extract-all")
@@ -101,6 +110,7 @@ def extract_all(db: Session = Depends(get_db)) -> dict[str, int | str | list]:
     )
 
     service = ExtractionService()
+    verifier = VerificationService()
     results = []
     for (email_id,) in email_ids:
         email = (
@@ -110,10 +120,104 @@ def extract_all(db: Session = Depends(get_db)) -> dict[str, int | str | list]:
         )
         if email is None:
             continue
-        results.append(service.process_email(db, email))
+        result = service.process_email(db, email)
+        verification = verifier.verify_email(db, email)
+        db.commit()
+        result["verification"] = serialize_verification(verification)
+        results.append(result)
 
     return {
         "status": "extracted",
         "emails": len(results),
         "results": results,
     }
+
+
+@router.get("/verification/{email_id}")
+def get_verification(email_id: str, db: Session = Depends(get_db)) -> dict:
+    verification = (
+        db.query(Verification)
+        .filter(Verification.email_id == email_id)
+        .one_or_none()
+    )
+    if verification is None:
+        raise HTTPException(status_code=404, detail="Verification not found")
+
+    return serialize_verification(verification)
+
+
+@router.post("/verification/{email_id}/review")
+def review_verification(
+    email_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+) -> dict:
+    verification = (
+        db.query(Verification)
+        .filter(Verification.email_id == email_id)
+        .one_or_none()
+    )
+    if verification is None:
+        raise HTTPException(status_code=404, detail="Verification not found")
+
+    action = str(payload.get("action", ""))
+    corrected_fields = payload.get("corrected_fields")
+    record = VerificationService().review(
+        db,
+        verification.id,
+        action,
+        corrected_fields,
+    )
+    db.commit()
+    return serialize_verification(record)
+
+
+@router.get("/verification/{email_id}/report.pdf")
+def verification_report(email_id: str, db: Session = Depends(get_db)) -> Response:
+    verification = (
+        db.query(Verification)
+        .filter(Verification.email_id == email_id)
+        .one_or_none()
+    )
+    if verification is None:
+        raise HTTPException(status_code=404, detail="Verification not found")
+
+    email = (
+        db.query(EmailMessage)
+        .filter(EmailMessage.email_id == email_id)
+        .one_or_none()
+    )
+    si = (
+        db.query(Extraction)
+        .filter(
+            Extraction.email_id == email_id,
+            Extraction.document_type == "SI",
+        )
+        .one_or_none()
+    )
+    bl = (
+        db.query(Extraction)
+        .filter(
+            Extraction.email_id == email_id,
+            Extraction.document_type == "BL",
+        )
+        .one_or_none()
+    )
+
+    pdf_bytes = generate_report(
+        email_id=email_id,
+        subject=email.subject if email else "",
+        sender=email.sender if email else "",
+        category=email.category if email else "",
+        verification=serialize_verification(verification),
+        si_fields=snake_to_display(si.fields) if si and si.fields else {},
+        bl_fields=snake_to_display(bl.fields) if bl and bl.fields else {},
+    )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{email_id}_report.pdf"'
+        },
+    )

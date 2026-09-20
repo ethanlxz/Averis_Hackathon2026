@@ -13,3 +13,6 @@ Pillow>=10.0
 easyocr>=1.7
 python-docx>=1.1
 openpyxl>=3.1
+
+# PDF report generation
+reportlab>=4.0

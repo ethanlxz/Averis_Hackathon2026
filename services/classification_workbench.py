@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from models.email_message import EmailMessage
 from services.classification_schema import ALLOWED_CATEGORIES, BL_COMPARISON
 from services.document_parser import snake_to_display
+from services.verification_service import serialize_verification
 
 
 CATEGORY_LABELS = {
@@ -115,6 +116,7 @@ def get_classification_view_model(
         .options(
             selectinload(EmailMessage.documents),
             selectinload(EmailMessage.extractions),
+            selectinload(EmailMessage.verifications),
         )
         .order_by(EmailMessage.email_id)
         .all()
@@ -140,6 +142,7 @@ def build_classification_view_model(
     needs_classification = []
     search_results = []
     extraction_lookup: dict[str, Any] = {}
+    verification_lookup: dict[str, Any] = {}
     query = (search_query or "").strip()
 
     for email in emails:
@@ -153,6 +156,8 @@ def build_classification_view_model(
                     "fields": document.get("fields"),
                     "normalized_fields": document.get("normalized_fields"),
                 }
+        if item.get("verification"):
+            verification_lookup[item["email_id"]] = item["verification"]
         if query and _search_matches(item, query):
             search_results.append(item)
         if needs_classification_bucket(email):
@@ -190,6 +195,7 @@ def build_classification_view_model(
         "search_results": search_results,
         "search_active": bool(query),
         "extraction_data_json": json.dumps(extraction_lookup).replace("<", "\\u003c"),
+        "verification_data_json": json.dumps(verification_lookup).replace("<", "\\u003c"),
     }
 
 
@@ -235,6 +241,8 @@ def serialize_email(email: EmailMessage) -> dict[str, Any]:
         for extraction in extractions
         if extraction.document_id is not None
     }
+    verifications = getattr(email, "verifications", None) or []
+    verification = verifications[0] if verifications else None
 
     documents = []
     extraction_errors: list[dict[str, Any]] = []
@@ -313,6 +321,7 @@ def serialize_email(email: EmailMessage) -> dict[str, Any]:
         )
         or "None",
         "pipeline": build_pipeline_stages(email),
+        "verification": serialize_verification(verification),
         "extraction_errors": extraction_errors,
         "extraction_warnings": extraction_warnings,
         "has_extraction_issues": bool(extraction_errors or extraction_warnings),

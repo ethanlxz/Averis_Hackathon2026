@@ -40,16 +40,17 @@
       {% if display_emails %}
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th scope="col">Email</th><th scope="col">Subject</th><th scope="col">Sender</th>{% if search_active %}<th scope="col">Category</th>{% endif %}<th scope="col" class="numeric">Files</th><th scope="col" class="numeric">Confidence</th></tr></thead>
+          <thead><tr><th scope="col">Email</th><th scope="col">Subject</th><th scope="col">Sender</th>{% if search_active %}<th scope="col">Category</th>{% endif %}<th scope="col" class="numeric">Files</th><th scope="col" class="numeric">Confidence</th><th scope="col">Verdict</th></tr></thead>
           <tbody>
             {% for email in display_emails %}
-            <tr data-email-row="{{ email.email_id }}" {% if loop.first %}class="is-selected"{% endif %}>
+            <tr data-email-row="{{ email.email_id }}" class="{% if email.verification %}verdict-{{ email.verification.verdict_class }} {% endif %}{% if loop.first %}is-selected{% endif %}">
               <td><button class="record-button" type="button" data-email-target="{{ email.email_id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}" aria-label="Show details for {{ email.email_id }}">{{ email.email_id }}</button></td>
               <td class="subject"><span class="truncate" title="{{ email.subject }}">{{ email.subject or "(No subject)" }}</span></td>
               <td><span class="truncate" title="{{ email.sender }}">{{ email.sender }}</span></td>
               {% if search_active %}<td><span class="status {% if email.category %}success{% else %}warning{% endif %}">{{ email.category_label or "Unclassified" }}</span></td>{% endif %}
               <td class="numeric">{{ email.attachment_count }}</td>
               <td class="numeric">{% if email.classification_confidence is not none %}{{ "%.0f"|format(email.classification_confidence * 100) }}%{% else %}-{% endif %}</td>
+              <td data-verdict-cell>{% if email.verification %}<span class="status {{ email.verification.verdict_class }}">{{ email.verification.verdict_label }}</span>{% else %}<span class="status">Pending</span>{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -104,6 +105,25 @@
             {% endfor %}
           </ul>
         </section>
+        <section class="detail-section" data-verification data-email-id="{{ email.email_id }}">
+          <h3>Verification</h3>
+          {% if email.verification %}
+          <div class="verdict-row">
+            <span class="status {{ email.verification.verdict_class }}">{{ email.verification.verdict_label }}</span>
+            <small class="tabular">{{ "%.0f"|format(email.verification.confidence * 100) }}% confidence</small>
+            <small>{{ email.verification.reviewer_status }}</small>
+          </div>
+          {% if email.verification.review_reason %}<p class="muted">{{ email.verification.review_reason }}</p>{% endif %}
+          <div class="detail-actions">
+            <a class="button secondary" href="/api/verification/{{ email.email_id | urlencode }}/report.pdf">Download report</a>
+            {% if email.verification.result != 'MATCH' %}
+            <button class="button" type="button" data-review-button data-email-id="{{ email.email_id }}">Review</button>
+            {% endif %}
+          </div>
+          {% else %}
+          <p class="muted">Not verified yet — press "Extract all text".</p>
+          {% endif %}
+        </section>
         {% endif %}
         <section class="detail-section"><a class="record-link" href="/inbox/{{ email.email_id | urlencode }}">Open full email <svg aria-hidden="true"><use href="/static/icons.svg#arrow-right"></use></svg></a></section>
       </article>
@@ -122,12 +142,20 @@
   </section>
   {% endif %}
   <script type="application/json" id="extraction-data">{{ extraction_data_json | safe }}</script>
+  <script type="application/json" id="verification-data">{{ verification_data_json | safe }}</script>
   <dialog class="compare-modal" id="compare-modal">
     <div class="modal-head">
       <h2 data-modal-title>Attachment</h2>
       <button class="icon-button" type="button" data-modal-close aria-label="Close">✕</button>
     </div>
     <div class="modal-body" data-modal-body></div>
+  </dialog>
+  <dialog class="compare-modal" id="review-modal">
+    <div class="modal-head">
+      <h2 data-review-title>Human review</h2>
+      <button class="icon-button" type="button" data-review-close aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body" data-review-body></div>
   </dialog>
 {% endblock %}
 {% block scripts %}
@@ -348,6 +376,121 @@
     if (event.target === compareModal) compareModal.close();
   });
 
+  const verificationData = JSON.parse(document.querySelector("#verification-data").textContent || "{}");
+  const reviewModal = document.querySelector("#review-modal");
+  const reviewTitle = document.querySelector("[data-review-title]");
+  const reviewBody = document.querySelector("[data-review-body]");
+  const reviewFieldLabels = { shipper: "Shipper", consignee: "Consignee", notify_party: "Notify Party", port_of_loading: "Port of Loading", port_of_discharge: "Port of Discharge", container_count: "Container Count", gross_weight_kg: "Gross Weight (kg)" };
+
+  async function submitReview(emailId, action, correctedFields) {
+    try {
+      const response = await fetch(`/api/verification/${encodeURIComponent(emailId)}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, corrected_fields: correctedFields }),
+      });
+      if (!response.ok) throw new Error("Review failed. Try again.");
+      window.location.reload();
+    } catch (error) {
+      window.alert(error.message);
+    }
+  }
+
+  function openReviewModal(emailId) {
+    const entry = verificationData[emailId];
+    reviewTitle.textContent = `Human review — ${emailId}`;
+    reviewBody.replaceChildren();
+
+    if (!entry) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "No verification data for this email.";
+      reviewBody.appendChild(p);
+      reviewModal.showModal();
+      return;
+    }
+
+    const summary = document.createElement("p");
+    summary.textContent = `Verdict: ${entry.verdict_label} · Confidence: ${(entry.confidence * 100).toFixed(0)}%`;
+    reviewBody.appendChild(summary);
+
+    const mismatches = entry.mismatch_details || {};
+    const mismatchKeys = Object.keys(mismatches);
+    if (mismatchKeys.length) {
+      const h = document.createElement("h3");
+      h.textContent = "Mismatches";
+      reviewBody.appendChild(h);
+      mismatchKeys.forEach((field) => {
+        const detail = mismatches[field] || {};
+        const p = document.createElement("p");
+        p.textContent = `${reviewFieldLabels[field] || field}: SI "${detail.si}" vs BL "${detail.bl}"`;
+        reviewBody.appendChild(p);
+      });
+    }
+
+    const missing = entry.missing_fields || [];
+    if (missing.length) {
+      const h = document.createElement("h3");
+      h.textContent = "Missing";
+      reviewBody.appendChild(h);
+      const p = document.createElement("p");
+      p.textContent = missing.map((f) => reviewFieldLabels[f] || f).join(", ");
+      reviewBody.appendChild(p);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "modal-actions";
+    const approveBtn = document.createElement("button");
+    approveBtn.type = "button";
+    approveBtn.className = "button";
+    approveBtn.textContent = "Approve";
+    const correctBtn = document.createElement("button");
+    correctBtn.type = "button";
+    correctBtn.className = "button secondary";
+    correctBtn.textContent = "Correct";
+    actions.append(approveBtn, correctBtn);
+    reviewBody.appendChild(actions);
+
+    const form = document.createElement("div");
+    form.className = "review-form";
+    form.hidden = true;
+    [...new Set([...mismatchKeys, ...missing])].forEach((field) => {
+      const label = document.createElement("label");
+      label.textContent = reviewFieldLabels[field] || field;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.dataset.field = field;
+      input.value = (mismatches[field] && mismatches[field].bl) || "";
+      label.appendChild(input);
+      form.appendChild(label);
+    });
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "button";
+    saveBtn.textContent = "Save corrections";
+    form.appendChild(saveBtn);
+    reviewBody.appendChild(form);
+
+    approveBtn.addEventListener("click", () => submitReview(emailId, "approve", null));
+    correctBtn.addEventListener("click", () => { form.hidden = !form.hidden; });
+    saveBtn.addEventListener("click", () => {
+      const corrected = {};
+      form.querySelectorAll("input").forEach((input) => { corrected[input.dataset.field] = input.value; });
+      submitReview(emailId, "correct", corrected);
+    });
+
+    reviewModal.showModal();
+  }
+
+  document.querySelectorAll("[data-review-button]").forEach((button) => {
+    button.addEventListener("click", () => openReviewModal(button.dataset.emailId));
+  });
+
+  document.querySelector("[data-review-close]").addEventListener("click", () => reviewModal.close());
+  reviewModal.addEventListener("click", (event) => {
+    if (event.target === reviewModal) reviewModal.close();
+  });
+
   document.querySelectorAll("[data-extract-button]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       const emailId = button.dataset.emailId;
@@ -365,7 +508,9 @@
         updateIssues(emailId, data.extractions);
         updateExtractionData(emailId, data.extractions);
         label.textContent = "Extract again";
-        if (status) status.textContent = `Done — ${data.extractions.length} document(s) processed.`;
+        const verdict = data.verification ? ` — ${data.verification.verdict_label}` : "";
+        if (status) status.textContent = `Done — ${data.extractions.length} document(s) processed${verdict}.`;
+        window.setTimeout(() => window.location.reload(), 800);
       } catch (error) {
         label.textContent = "Extract all text";
         if (status) { status.classList.add("error"); status.textContent = error.message; }

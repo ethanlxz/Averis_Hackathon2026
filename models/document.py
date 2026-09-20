@@ -32,6 +32,7 @@ class Document(Base):
     verifications = relationship(
         "Verification",
         back_populates="document",
+        foreign_keys="Verification.document_id",
     )
     extractions = relationship(
         "Extraction",

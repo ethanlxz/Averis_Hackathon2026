@@ -28,6 +28,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_email_classification_columns()
     _ensure_extraction_columns()
+    _ensure_verification_columns()
 
 
 def _ensure_email_classification_columns() -> None:
@@ -78,6 +79,47 @@ def _ensure_extraction_columns() -> None:
         "warnings": "ALTER TABLE extractions ADD COLUMN warnings JSON",
         "normalized_fields": (
             "ALTER TABLE extractions ADD COLUMN normalized_fields JSON"
+        ),
+    }
+
+    with engine.begin() as connection:
+        for column_name, statement in migrations.items():
+            if column_name not in existing_columns:
+                connection.execute(text(statement))
+
+
+def _ensure_verification_columns() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    inspector = inspect(engine)
+    if "verifications" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("verifications")
+    }
+    migrations = {
+        "si_document_id": (
+            "ALTER TABLE verifications ADD COLUMN si_document_id INTEGER"
+        ),
+        "bl_document_id": (
+            "ALTER TABLE verifications ADD COLUMN bl_document_id INTEGER"
+        ),
+        "mismatch_details": (
+            "ALTER TABLE verifications ADD COLUMN mismatch_details JSON"
+        ),
+        "review_details": (
+            "ALTER TABLE verifications ADD COLUMN review_details JSON"
+        ),
+        "missing_fields": (
+            "ALTER TABLE verifications ADD COLUMN missing_fields JSON"
+        ),
+        "corrected_fields": (
+            "ALTER TABLE verifications ADD COLUMN corrected_fields JSON"
+        ),
+        "verification_hash": (
+            "ALTER TABLE verifications ADD COLUMN verification_hash VARCHAR(64)"
         ),
     }
 
