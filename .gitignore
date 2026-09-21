@@ -3,4 +3,5 @@ __pycache__/
 *.py[cod]
 averis.db
 uploads/
+docker-data/
 .env

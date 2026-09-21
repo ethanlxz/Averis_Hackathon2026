@@ -135,7 +135,7 @@ class EmailClassifierTests(unittest.TestCase):
         self.assertEqual(result.category, BL_COMPARISON)
         self.assertEqual(result.source, "rules_fallback")
 
-    def test_missing_ai_key_is_reported_explicitly(self):
+    def test_missing_ai_key_falls_back_to_rules(self):
         classifier = EmailClassifier(llm_service=MissingLLM())
         result = classifier.classify(
             "Invoice query",
@@ -143,10 +143,10 @@ class EmailClassifierTests(unittest.TestCase):
             [],
         )
 
-        self.assertIsNone(result.category)
-        self.assertEqual(result.confidence, 0.0)
-        self.assertEqual(result.source, "missing_ai_key")
-        self.assertEqual(result.reason, "AI key not included")
+        self.assertEqual(result.category, INVOICE_QUERY)
+        self.assertGreater(result.confidence, 0.0)
+        self.assertEqual(result.source, "rules_missing_ai_key")
+        self.assertEqual(result.reason, "invoice_keyword")
 
 
 class ClassifyEmailApiHandlerTests(unittest.TestCase):
@@ -163,10 +163,10 @@ class ClassifyEmailApiHandlerTests(unittest.TestCase):
                 }
             )
 
-        self.assertIsNone(payload["category"])
+        self.assertEqual(payload["category"], INVOICE_QUERY)
         self.assertIsInstance(payload["confidence"], float)
-        self.assertEqual(payload["source"], "missing_ai_key")
-        self.assertEqual(payload["reason"], "AI key not included")
+        self.assertEqual(payload["source"], "rules_missing_ai_key")
+        self.assertEqual(payload["reason"], "invoice_keyword")
 
 
 if __name__ == "__main__":

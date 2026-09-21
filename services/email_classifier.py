@@ -74,10 +74,10 @@ class EmailClassifier:
 
         if not self.llm_service.is_configured:
             return ClassificationResult(
-                category=None,
-                confidence=0.0,
-                source="missing_ai_key",
-                reason="AI key not included",
+                category=rule_result.category,
+                confidence=rule_result.confidence,
+                source="rules_missing_ai_key",
+                reason=rule_result.reason or "AI key not included; used rules",
             )
 
         llm_result = self.llm_service.classify_email(subject, body, attachments or [])

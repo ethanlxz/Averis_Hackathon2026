@@ -97,7 +97,7 @@ class ClassificationWorkbenchTests(unittest.TestCase):
         self.assertEqual(model["selected_action"], "Process documents")
         self.assertIn("SI/BL match", model["pipeline_stages"])
 
-    def test_missing_ai_key_emails_are_blocked(self):
+    def test_missing_ai_key_without_category_is_blocked(self):
         model = build_classification_view_model(
             [
                 email("email_001", None, "missing_ai_key"),
@@ -107,6 +107,18 @@ class ClassificationWorkbenchTests(unittest.TestCase):
 
         self.assertEqual(model["needs_classification_count"], 1)
         self.assertEqual(model["needs_classification"][0]["email_id"], "email_001")
+        self.assertEqual(model["counts"][BL_COMPARISON], 1)
+
+    def test_rules_missing_ai_key_counts_as_classified(self):
+        model = build_classification_view_model(
+            [
+                email("email_001", INVOICE_QUERY, "rules_missing_ai_key"),
+                email("email_004", BL_COMPARISON),
+            ]
+        )
+
+        self.assertEqual(model["needs_classification_count"], 0)
+        self.assertEqual(model["counts"][INVOICE_QUERY], 1)
         self.assertEqual(model["counts"][BL_COMPARISON], 1)
 
     def test_bl_comparison_email_serializes_documents(self):

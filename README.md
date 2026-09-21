@@ -104,7 +104,7 @@ Classification supports:
 
 - DeepSeek LLM classification when `DEEPSEEK_API_KEY` is configured.
 - Rule fallback when the LLM is unavailable or returns an invalid result.
-- Missing-key handling with a visible `missing_ai_key` source.
+- Missing-key handling with rule fallback through a visible `rules_missing_ai_key` source.
 - Category summary endpoints and a human workbench view.
 
 ### 3. Document Extraction
@@ -571,25 +571,68 @@ Testing command:
 
 ## Setup
 
-Run from the `Averis_Project` folder.
+The project is self-contained inside the `Averis_Project` folder. The inbox data,
+attachments, loader, app code, and Docker setup all live here so judges do not
+need to move files around after unzipping.
 
-```powershell
-cd Averis_Project
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+### Required folder layout
+
+```text
+Averis_Project/
+|-- app/
+|-- inbox/
+|-- attachments/
+|-- loader.py
+|-- sample_submission.json
+|-- requirements.txt
+|-- requirements-docker.txt
+|-- Dockerfile
+|-- docker-compose.yml
+`-- README.md
+```
+
+### Docker quick start
+
+Run these commands from the `Averis_Project` folder:
+
+```bash
+docker compose up --build
 ```
 
 Open:
 
 ```text
-http://127.0.0.1:8000
+http://localhost:8000
 ```
 
-If you are not using the existing virtual environment, create one first:
+After the app opens, import the bundled data by clicking **Import inbox** on the
+dashboard. You can also import from the command line:
+
+```bash
+docker compose exec averis python scripts/import_input_data.py --reset
+```
+
+The container reads:
+
+```text
+/app/inbox/
+/app/attachments/
+/app/loader.py
+```
+
+The Docker image uses the OpenAI OCR path by default to keep setup light. Set
+`OPENAI_API_KEY` in your shell or local `.env` file if scanned/image-only
+documents need OCR. Without API keys, the app still runs with rule-based
+classification and non-OCR extraction fallbacks.
+
+### Local Python fallback
+
+If Docker is unavailable, run from the `Averis_Project` folder:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
 ## Configuration
@@ -624,10 +667,10 @@ Supported settings:
 Default data source:
 
 ```text
-../
+.
 ```
 
-The parent bundle contains:
+The project folder contains:
 
 ```text
 loader.py
@@ -635,6 +678,9 @@ inbox/
 attachments/
 sample_submission.json
 ```
+
+Docker overrides `DATA_SOURCE` to `/app`, which is the project folder inside the
+container.
 
 ## Common Commands
 
@@ -667,6 +713,8 @@ Run the app:
 ```text
 Averis_Project/
 |-- app/                 FastAPI setup, config, database
+|-- inbox/               Bundled hackathon email JSON files
+|-- attachments/         Bundled SI/BL/email attachment files
 |-- models/              SQLAlchemy ORM models
 |-- routers/             API and HTML route handlers
 |-- services/            Classification, extraction, comparison, review, audit, reports
@@ -677,6 +725,11 @@ Averis_Project/
 |-- static/              CSS, JS, icon assets
 |-- templates/           Jinja2 pages
 |-- tests/               Unit and integration tests
+|-- loader.py            Hackathon input loader used by InboxService
+|-- sample_submission.json
+|-- Dockerfile
+|-- docker-compose.yml
+|-- requirements-docker.txt
 |-- project_structure.md Detailed developer orientation
 |-- requirements.txt
 `-- README.md
@@ -689,6 +742,8 @@ Averis_Project/
 | Database | Move from SQLite to PostgreSQL through `DATABASE_URL`, with migrations managed by Alembic or a similar migration tool. |
 | Background processing | Run import, OCR, extraction, and verification as queued jobs so large inbox batches do not block web requests. |
 | File storage | Store uploaded and imported attachments in object storage with stable document IDs. |
+| Enterprise ERP integration | Integrate future verification results with enterprise ERP systems so shipment records, customer details, document status, and discrepancy outcomes can sync with existing operational workflows. |
+| Email system integration | Connect directly to enterprise email systems in the future, such as Microsoft Outlook, Gmail, or shared operations mailboxes, so Veritas can ingest new messages automatically instead of relying only on static JSON bundle imports. |
 | OCR and LLM cost control | Cache extracted text, store model outputs, add retry/backoff, and process only missing or changed documents. |
 | Multi-user review | Add reviewer accounts, assignment queues, role permissions, and reviewer comments. |
 | Observability | Track processing time, API failures, OCR provider usage, mismatch rates, review rates, and confidence distribution. |

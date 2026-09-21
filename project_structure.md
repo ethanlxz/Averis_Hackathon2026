@@ -53,8 +53,8 @@ Averis_Project/
 │   ├── classification_workbench.py Grouped/searchable data and email detail serialization
 │   ├── email_classifier.py         DeepSeek-first classifier plus rule fallback
 │   ├── llm_service.py              DeepSeek API (classify + shipment-field extraction)
-│   ├── input_importer.py           Imports root bundle inbox/attachments into SQLite
-│   ├── inbox_service.py            Wrapper around root loader.py
+│   ├── input_importer.py           Imports bundled inbox/attachments into SQLite
+│   ├── inbox_service.py            Wrapper around bundled loader.py
 │   ├── document_parser.py          Document-type detection + text/field extraction
 │   ├── ocr_service.py              EasyOCR + PyMuPDF OCR for scanned PDFs/images
 │   ├── document_validator.py       Extraction error/warning validation
@@ -84,11 +84,18 @@ Averis_Project/
 │   ├── test_classification_workbench.py  Workbench view-model tests
 │   ├── test_field_normalizer.py       Normalization/comparison tests
 │   └── test_audit_service.py          Audit snapshot/query tests
+├── inbox/                   Bundled hackathon email JSON files
+├── attachments/             Bundled SI/BL/email attachment files
+├── loader.py                Hackathon input loader
+├── sample_submission.json   Expected submission key shape
+├── Dockerfile               Container image for judge setup
+├── docker-compose.yml       One-command local Docker runner
+├── requirements-docker.txt  Docker dependencies without local EasyOCR stack
 ├── .env                     Local secrets/config, ignored by git
 ├── .env.example             Safe template of supported config values
 ├── uploads/                 Runtime storage for manually uploaded attachments
 │   └── <email_id>/          Per-email upload directory, created on demand
-├── requirements.txt         Python dependencies
+├── requirements.txt         Full local Python dependencies
 └── README.md                Human setup/run notes
 ```
 
@@ -360,17 +367,17 @@ when a verification record exists.
 
 ## Hackathon Bundle Links
 
-The parent folder contains the input bundle:
+The project folder contains the input bundle:
 
 ```text
-../loader.py
-../inbox/*.json
-../attachments/*
-../sample_submission.json
+loader.py
+inbox/*.json
+attachments/*
+sample_submission.json
 ```
 
-`DATA_SOURCE` points to that parent folder by default. `InboxService` imports
-`loader.py` dynamically from `DATA_SOURCE`.
+`DATA_SOURCE` points to the project folder by default. `InboxService` imports
+`loader.py` dynamically from `DATA_SOURCE`. Docker sets `DATA_SOURCE=/app`.
 
 ## Common Commands
 

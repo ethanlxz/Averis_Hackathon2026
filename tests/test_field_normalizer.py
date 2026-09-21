@@ -14,7 +14,7 @@ from services.field_normalizer import (
     parse_port,
 )
 
-ATTACHMENTS_DIR = Path(__file__).resolve().parent.parent.parent / "attachments"
+ATTACHMENTS_DIR = Path(__file__).resolve().parent.parent / "attachments"
 HAS_SAMPLE_DATA = ATTACHMENTS_DIR.is_dir()
 
 

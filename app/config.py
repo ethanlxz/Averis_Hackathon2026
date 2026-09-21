@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BUNDLE_ROOT = PROJECT_ROOT.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
 
@@ -81,7 +80,7 @@ class Settings(BaseModel):
         default_factory=lambda: Path(os.getenv("UPLOAD_DIR", "uploads"))
     )
     data_source: str = Field(
-        default_factory=lambda: os.getenv("DATA_SOURCE", str(BUNDLE_ROOT))
+        default_factory=lambda: os.getenv("DATA_SOURCE", str(PROJECT_ROOT))
     )
 
     class Config:
