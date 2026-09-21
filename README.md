@@ -4,6 +4,31 @@ Veritas is a FastAPI-based shipping document verification system built for the A
 
 The name Veritas reflects the goal of the project: verify shipping truth from messy operational documents before a draft Bill of Lading is finalized.
 
+## Table of Contents
+
+- [Problem Statement](#problem-statement)
+- [Purpose](#purpose)
+- [Solution Overview](#solution-overview)
+- [Problem-Solution Alignment](#problem-solution-alignment)
+- [Features](#features)
+- [Example Email ID](#example-email-id)
+- [Simplified Project Flow](#simplified-project-flow)
+- [Tech Stack By Feature](#tech-stack-by-feature)
+- [AI and Cloud Infrastructure Integration](#ai-and-cloud-infrastructure-integration)
+- [BL Comparison Edge Cases Handled](#bl-comparison-edge-cases-handled)
+- [Implementation Details](#implementation-details)
+- [User Feedback and Testing](#user-feedback-and-testing)
+- [Success Metrics](#success-metrics)
+- [API Reference](#api-reference)
+- [Setup](#setup)
+- [Configuration](#configuration)
+- [Common Commands](#common-commands)
+- [Project Structure](#project-structure)
+- [Scalability Plans](#scalability-plans)
+- [Known Limitations](#known-limitations)
+- [Coding Challenges](#coding-challenges)
+- [Final Outcome](#final-outcome)
+
 ## Problem Statement
 
 Shipping operations teams receive many kinds of messages in the same inbox: SI requests, BL comparison requests, invoice questions, general operations messages, and spam. The most important workflow is the BL comparison request, where a Shipping Instruction (SI) is treated as the reference document and a draft Bill of Lading (BL) must be checked against it.
@@ -42,6 +67,18 @@ Veritas implements a full inbox-to-verdict workflow:
 8. Record audit events and export the official submission shape.
 
 Only BL comparison requests continue to the document verification step. Other categories are classified and included in the submission as category-only results.
+
+## Problem-Solution Alignment
+
+| Problem in shipping workflow | Veritas solution | Outcome |
+| --- | --- | --- |
+| Mixed inbox contains comparison requests, SI requests, invoice questions, general messages, and spam. | Email classifier separates messages into the required categories. | Operations staff can focus on the emails that need action. |
+| BL comparison requests are easy to overlook. | `BL_COMPARISON` emails are routed into the extraction and verification pipeline automatically. | Every detected comparison request gets a visible status. |
+| Manual SI vs BL checking is repetitive. | The system extracts and compares seven required fields. | Reviewers see only the result and any mismatched fields. |
+| Shipping documents use inconsistent labels and layouts. | Parser supports aliases, label-only layouts, DOCX/PDF/XLSX/TXT extraction, and OCR fallback. | The same semantic field can be compared even when formatted differently. |
+| Some documents are unreadable, missing, or incomplete. | Validation marks uncertain cases as `REVIEW` with structured reasons. | The system escalates instead of guessing. |
+| Review decisions need to be traceable. | Verifications include hashes, field snapshots, audit events, and PDF reports. | Decisions can be explained after processing. |
+| Hackathon output must follow a specific JSON shape. | Submission service converts internal results into the required output format. | Results can be exported and evaluated consistently. |
 
 ## Features
 
@@ -320,6 +357,21 @@ flowchart TD
 | Submission export | JSON serialization service | `services/submission_service.py` |
 | Tests | `unittest`, in-memory SQLite | `tests/*` |
 
+## AI and Cloud Infrastructure Integration
+
+| Layer | Current implementation | Cloud/scaling path |
+| --- | --- | --- |
+| AI email classification | DeepSeek chat API classifies emails when `DEEPSEEK_API_KEY` is configured, with rule fallback when the API is unavailable. | Move classifier calls behind a queue for retry, rate limiting, and batch processing. |
+| AI field extraction support | DeepSeek fills missing shipment fields when rule extraction is incomplete and text is available. | Track model prompts, versions, and confidence metrics for controlled production tuning. |
+| OCR | EasyOCR is available for local OCR; OpenAI OCR is available through `OCR_PROVIDER=openai` for higher-accuracy scanned document extraction. | Route large OCR jobs to asynchronous workers and store OCR outputs for reuse. |
+| Application backend | FastAPI runs locally with Uvicorn. | Deploy as a containerized API service on Render, Railway, Azure App Service, AWS ECS, or similar. |
+| Database | SQLite stores MVP data locally. | Replace `DATABASE_URL` with managed PostgreSQL, such as Supabase Postgres, for concurrent users and persistent cloud data. |
+| File storage | Attachments are read from the local bundle and `uploads/`. | Move uploaded SI/BL files to object storage such as Supabase Storage, S3, or Azure Blob Storage. |
+| Audit and reports | Audit events are stored in the database; PDF reports are generated on demand. | Persist generated reports in object storage and add retention policies. |
+| Configuration | `.env` and environment variables drive API keys, OCR provider, database URL, and model settings. | Use cloud secret managers or platform environment variables for deployment. |
+
+The current project is intentionally MVP-friendly: it works locally, keeps setup simple, and isolates the places that would change for cloud deployment through configuration and service boundaries.
+
 ## BL Comparison Edge Cases Handled
 
 | Area | Edge case handled | Example | Result |
@@ -442,6 +494,37 @@ The system improves accuracy by combining several safeguards:
 - Human review for uncertainty.
 
 Confidence is not treated as a magic score. It is a practical signal derived from how many required fields could be compared successfully.
+
+## User Feedback and Testing
+
+| Feedback/testing area | What was tested or reviewed | How it improved the project |
+| --- | --- | --- |
+| Real sample emails | The pipeline was checked against bundled email IDs and SI/BL attachment pairs. | Revealed mismatches like `email_004` party differences and `email_111` container count differences. |
+| Classification behavior | Rule classification and LLM fallback behavior are covered by tests. | Reduced risk of routing the wrong email type into BL verification. |
+| Field normalization | Party names, ports, container counts, gross weights, placeholder values, and LOCODE cases are covered by unit tests. | Improved accuracy while reducing false mismatches caused by formatting. |
+| OCR provider behavior | EasyOCR/OpenAI provider selection and OpenAI OCR failure handling are tested. | Made OCR failure visible and recoverable instead of crashing the pipeline. |
+| Submission generation | Submission export is tested for expected JSON shape. | Ensures results remain compatible with the hackathon evaluator format. |
+| Human review flow | Review status, corrected fields, verification hashes, and audit events are modeled and persisted. | Keeps uncertain decisions traceable and allows manual correction. |
+| UI workflow review | Classification workbench exposes extraction issues, verification status, audit links, and report downloads. | Gives reviewers the context needed to approve or correct edge cases. |
+
+Testing command:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+## Success Metrics
+
+| Metric | Why it matters | How Veritas supports it |
+| --- | --- | --- |
+| Classification accuracy | Wrong categories cause missed work or unnecessary verification. | Tracks category, confidence, source, and fallback reason. |
+| BL comparison precision | False mismatches waste reviewer time. | Uses normalization, tolerances, LOCODE logic, and field-specific comparison. |
+| BL comparison recall | Missed defects can cause shipping corrections and delays. | Compares all seven required fields and records defect fields explicitly. |
+| Review quality | Uncertain cases should be escalated with useful context. | Stores review reasons, missing fields, extraction errors, and side-by-side values. |
+| OCR coverage | Scanned/image-only documents need a readable text path. | Supports EasyOCR and OpenAI OCR provider selection. |
+| Processing reliability | Bad inputs should not break the whole batch. | Uses validation statuses and controlled fallbacks. |
+| Audit completeness | Decisions must be explainable later. | Creates append-only audit events and verification hashes. |
+| Submission readiness | Output must match the expected evaluation format. | Maintains submission entries and downloadable `submission.json`. |
 
 ## API Reference
 
@@ -599,6 +682,19 @@ Averis_Project/
 `-- README.md
 ```
 
+## Scalability Plans
+
+| Area | Plan |
+| --- | --- |
+| Database | Move from SQLite to PostgreSQL through `DATABASE_URL`, with migrations managed by Alembic or a similar migration tool. |
+| Background processing | Run import, OCR, extraction, and verification as queued jobs so large inbox batches do not block web requests. |
+| File storage | Store uploaded and imported attachments in object storage with stable document IDs. |
+| OCR and LLM cost control | Cache extracted text, store model outputs, add retry/backoff, and process only missing or changed documents. |
+| Multi-user review | Add reviewer accounts, assignment queues, role permissions, and reviewer comments. |
+| Observability | Track processing time, API failures, OCR provider usage, mismatch rates, review rates, and confidence distribution. |
+| Evaluation loop | Compare exported submissions against evaluator feedback and maintain a case library of difficult examples. |
+| Rule/data expansion | Grow the LOCODE lookup, label aliases, and document class markers as more real shipping documents are reviewed. |
+
 ## Known Limitations
 
 - OCR accuracy still depends on scan quality and provider choice.
@@ -607,7 +703,7 @@ Averis_Project/
 - SQLite is suitable for the MVP and hackathon workflow, but production deployment should use a managed database.
 - Some complex table layouts may still require human review.
 
-## Challenges Faced
+## Coding Challenges
 
 - Categorizing `NEEDS_REVIEW` correctly was difficult because missing values, bad OCR, wrong documents, and true defects can look similar at first.
 - OCR with EasyOCR was not accurate enough for messy scanned documents, especially when labels and values were separated by layout.
