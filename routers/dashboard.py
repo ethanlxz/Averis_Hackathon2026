@@ -49,22 +49,59 @@ def _build_inbox_category_tabs(emails: list[EmailMessage]) -> list[dict[str, int
 def dashboard(request: Request, db: Session = Depends(get_db)):
     total_emails = db.query(EmailMessage).count()
     total_documents = db.query(Document).count()
-    pending_review = (
-        db.query(Verification)
-        .filter(Verification.reviewer_status == "pending")
-        .count()
-    )
-    mismatch_detected = (
-        db.query(Verification)
-        .filter(Verification.result == "MISMATCH")
-        .count()
-    )
-    completed_verification = (
-        db.query(Verification)
-        .filter(Verification.reviewer_status == "completed")
-        .count()
-    )
     classification = get_classification_view_model(db)
+    bl_overview = get_bl_verification_view_model(db)
+    verification_counts = bl_overview["counts"]
+    matched_count = verification_counts.get("matched", 0)
+    mismatch_count = verification_counts.get("mismatch", 0)
+    needs_review_count = verification_counts.get("needs_review", 0)
+    pending_count = verification_counts.get("pending", 0)
+    total_bl = verification_counts.get("all", 0)
+    action_required = mismatch_count + needs_review_count + pending_count
+    match_rate = round((matched_count / total_bl) * 100) if total_bl else 0
+    reviewed_count = (
+        db.query(Verification)
+        .filter(Verification.reviewer_status.in_(("approved", "corrected")))
+        .count()
+    )
+
+    def chart_degrees(count: int) -> float:
+        return round((count / total_bl) * 360, 2) if total_bl else 0
+
+    matched_end = chart_degrees(matched_count)
+    mismatch_end = matched_end + chart_degrees(mismatch_count)
+    review_end = mismatch_end + chart_degrees(needs_review_count)
+
+    attention_queue = []
+    for status_key, label, tone, action in (
+        ("mismatch", "Mismatch", "danger", "Compare fields"),
+        ("needs_review", "Review", "warning", "Check reason"),
+        ("pending", "Pending", "neutral", "Run comparison"),
+    ):
+        for email in bl_overview["status_groups"].get(status_key, []):
+            if len(attention_queue) >= 5:
+                break
+            attention_queue.append(
+                {
+                    "email_id": email["email_id"],
+                    "subject": email["subject"] or "(No subject)",
+                    "attachments": email["attachment_count"],
+                    "status_label": label,
+                    "tone": tone,
+                    "action": action,
+                }
+            )
+        if len(attention_queue) >= 5:
+            break
+
+    decision_message = "All BL/SI comparisons are matched."
+    if mismatch_count:
+        decision_message = "Resolve mismatches before preparing reports."
+    elif needs_review_count:
+        decision_message = "Review flagged cases before clearing the queue."
+    elif pending_count:
+        decision_message = "Run comparisons for pending BL/SI emails."
+
     recent_emails = (
         db.query(EmailMessage)
         .order_by(EmailMessage.created_at.desc())
@@ -79,10 +116,22 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "stats": {
                 "total_emails": total_emails,
                 "total_documents": total_documents,
-                "pending_review": pending_review,
-                "mismatch_detected": mismatch_detected,
-                "completed_verification": completed_verification,
+                "total_bl": total_bl,
+                "matched": matched_count,
+                "mismatch": mismatch_count,
+                "needs_review": needs_review_count,
+                "pending": pending_count,
+                "action_required": action_required,
+                "match_rate": match_rate,
+                "reviewed": reviewed_count,
             },
+            "verification_chart": {
+                "matched_end": matched_end,
+                "mismatch_end": mismatch_end,
+                "review_end": review_end,
+            },
+            "decision_message": decision_message,
+            "attention_queue": attention_queue,
             "classification": classification,
             "recent_emails": recent_emails,
             "active_page": "dashboard",

@@ -1,51 +1,77 @@
 {% extends "base.html" %}
 {% block title %}Overview{% endblock %}
 {% block page_title %}Overview{% endblock %}
-{% block page_subtitle %}<p class="page-subtitle">Shipping document operations</p>{% endblock %}
+{% block page_subtitle %}<p class="page-subtitle">BL/SI comparison decisions and shipping document workload</p>{% endblock %}
 {% block header_actions %}
   <button class="button secondary" id="load-data" type="button"><svg aria-hidden="true"><use href="/static/icons.svg#refresh-cw"></use></svg>Import inbox</button>
   <a class="button" href="/upload"><svg aria-hidden="true"><use href="/static/icons.svg#upload"></use></svg>Upload files</a>
 {% endblock %}
 {% block content %}
   <p class="notification" id="load-status" role="status" aria-live="polite"></p>
-  <section class="section-stack" aria-labelledby="overview-metrics">
-    <div class="section-heading"><div><h2 id="overview-metrics">At a glance</h2><p>Current inbox and verification totals</p></div></div>
-    <div class="metrics">
-      <article class="card metric"><span class="metric-label">Total emails</span><strong class="metric-value">{{ stats.total_emails }}</strong></article>
-      <article class="card metric"><span class="metric-label">Documents</span><strong class="metric-value">{{ stats.total_documents }}</strong></article>
-      <article class="card metric"><span class="metric-label">Pending review</span><strong class="metric-value">{{ stats.pending_review }}</strong></article>
-      <article class="card metric"><span class="metric-label">Mismatches</span><strong class="metric-value">{{ stats.mismatch_detected }}</strong></article>
-      <article class="card metric"><span class="metric-label">Completed</span><strong class="metric-value">{{ stats.completed_verification }}</strong></article>
+  <section class="overview-hero" aria-labelledby="decision-heading">
+    <div class="decision-copy">
+      <span class="eyebrow">Operations dashboard</span>
+      <h2 id="decision-heading">{{ decision_message }}</h2>
+      <p>Use the workload mix to decide whether to compare documents, fix mismatches, or clear review cases.</p>
+      <div class="decision-actions">
+        <a class="button" href="/classification?status=mismatch"><svg aria-hidden="true"><use href="/static/icons.svg#list-filter"></use></svg>Review exceptions</a>
+        <a class="button secondary" href="/classification?status=pending"><svg aria-hidden="true"><use href="/static/icons.svg#arrow-right"></use></svg>Open pending</a>
+      </div>
+    </div>
+    <div class="verification-chart-panel" aria-label="BL/SI status distribution">
+      <div
+        class="donut-chart{% if not stats.total_bl %} is-empty{% endif %}"
+        style="--matched-end: {{ verification_chart.matched_end }}deg; --mismatch-end: {{ verification_chart.mismatch_end }}deg; --review-end: {{ verification_chart.review_end }}deg;"
+        role="img"
+        aria-label="{{ stats.matched }} matched, {{ stats.mismatch }} mismatched, {{ stats.needs_review }} in review, {{ stats.pending }} pending"
+      >
+        <span><strong>{{ stats.match_rate }}%</strong><small>match rate</small></span>
+      </div>
+      <ul class="chart-legend">
+        <li><span class="legend-dot success"></span><span>Matched</span><strong>{{ stats.matched }}</strong></li>
+        <li><span class="legend-dot danger"></span><span>Mismatched</span><strong>{{ stats.mismatch }}</strong></li>
+        <li><span class="legend-dot warning"></span><span>Review</span><strong>{{ stats.needs_review }}</strong></li>
+        <li><span class="legend-dot neutral"></span><span>Pending</span><strong>{{ stats.pending }}</strong></li>
+      </ul>
     </div>
   </section>
+
+  <section class="section-stack" aria-labelledby="overview-metrics">
+    <h2 class="sr-only" id="overview-metrics">Overview metrics</h2>
+    <div class="metrics decision-metrics">
+      <article class="card metric priority-metric"><span class="metric-label">Needs action</span><strong class="metric-value">{{ stats.action_required }}</strong><span class="metric-note">mismatch, review, or pending</span></article>
+      <article class="card metric"><span class="metric-label">BL/SI cases</span><strong class="metric-value">{{ stats.total_bl }}</strong><span class="metric-note">{{ stats.matched }} matched</span></article>
+      <article class="card metric"><span class="metric-label">Inbox emails</span><strong class="metric-value">{{ stats.total_emails }}</strong><span class="metric-note">{{ classification.needs_classification_count }} unclassified</span></article>
+      <article class="card metric"><span class="metric-label">Documents</span><strong class="metric-value">{{ stats.total_documents }}</strong><span class="metric-note">{{ stats.reviewed }} reviewed</span></article>
+    </div>
+  </section>
+
   <div class="split-overview">
-    <section class="section-stack" aria-labelledby="recent-heading">
-      <div class="section-heading"><div><h2 id="recent-heading">Recent email</h2><p>Latest items in the inbox</p></div><a class="record-link" href="/inbox">View inbox <svg aria-hidden="true"><use href="/static/icons.svg#arrow-right"></use></svg></a></div>
-      {% if recent_emails %}
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th scope="col">Email</th><th scope="col">Subject</th><th scope="col">Category</th><th scope="col" class="numeric">Files</th></tr></thead>
-          <tbody>
-          {% for email in recent_emails %}
-            <tr>
-              <td><a class="record-link" href="/inbox/{{ email.email_id | urlencode }}">{{ email.email_id }}</a></td>
-              <td class="subject"><span class="truncate" title="{{ email.subject }}">{{ email.subject or "(No subject)" }}</span></td>
-              <td><span class="status {% if not email.category %}warning{% else %}success{% endif %}">{{ email.category.replace("_", " ").title() if email.category else "Unclassified" }}</span></td>
-              <td class="numeric">{{ email.attachment_count }}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
+    <section class="card decision-queue" aria-labelledby="queue-heading">
+      <div class="panel-head"><div><h2 id="queue-heading">Decision queue</h2><small>Highest-priority BL/SI cases</small></div><a class="record-link" href="/classification">Open comparison</a></div>
+      {% if attention_queue %}
+      <ol class="action-list">
+        {% for item in attention_queue %}
+        <li>
+          <div>
+            <a class="record-link" href="/classification?q={{ item.email_id | urlencode }}">{{ item.email_id }}</a>
+            <span class="truncate" title="{{ item.subject }}">{{ item.subject }}</span>
+          </div>
+          <span class="status {{ item.tone }}">{{ item.status_label }}</span>
+          <small>{{ item.attachments }} file{{ "" if item.attachments == 1 else "s" }} · {{ item.action }}</small>
+        </li>
+        {% endfor %}
+      </ol>
       {% else %}
-      <div class="card empty-state"><strong>No email imported yet</strong><p>Import the inbox bundle to populate this workspace.</p><button class="button secondary" type="button" data-import-trigger>Import inbox</button></div>
+      <div class="empty-state compact"><strong>No action needed</strong><p>Matched BL/SI cases are ready for the next reporting step.</p></div>
       {% endif %}
     </section>
+
     <section class="card" aria-labelledby="breakdown-heading">
-      <div class="panel-head"><h2 id="breakdown-heading">Comparison</h2><a class="record-link" href="/classification">Review</a></div>
+      <div class="panel-head"><div><h2 id="breakdown-heading">Inbox mix</h2><small>Classified email workload</small></div><a class="record-link" href="/inbox">View inbox</a></div>
       <ul class="file-list">
         {% for category in classification.categories %}
-        <li><a href="/classification?category={{ category.key }}">{{ category.label }}</a><strong class="tabular">{{ category.count }}</strong></li>
+        <li><a href="/classification?category={{ category.key }}">{{ category.label }}</a><span class="mix-bar" style="--mix-width: {{ (category.count / classification.total_emails * 100) if classification.total_emails else 0 }}%"></span><strong class="tabular">{{ category.count }}</strong></li>
         {% endfor %}
         {% if classification.needs_classification_count %}
         <li><span class="status warning">Needs classification</span><strong class="tabular">{{ classification.needs_classification_count }}</strong></li>
@@ -53,6 +79,29 @@
       </ul>
     </section>
   </div>
+
+  <section class="section-stack" aria-labelledby="recent-heading">
+    <div class="section-heading"><div><h2 id="recent-heading">Recent email</h2><p>Latest imported items and their current category</p></div><a class="record-link" href="/inbox">View inbox <svg aria-hidden="true"><use href="/static/icons.svg#arrow-right"></use></svg></a></div>
+    {% if recent_emails %}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th scope="col">Email</th><th scope="col">Subject</th><th scope="col">Category</th><th scope="col" class="numeric">Files</th></tr></thead>
+        <tbody>
+        {% for email in recent_emails %}
+          <tr>
+            <td><a class="record-link" href="/inbox/{{ email.email_id | urlencode }}">{{ email.email_id }}</a></td>
+            <td class="subject"><span class="truncate" title="{{ email.subject }}">{{ email.subject or "(No subject)" }}</span></td>
+            <td><span class="status {% if not email.category %}warning{% else %}success{% endif %}">{{ email.category.replace("_", " ").title() if email.category else "Unclassified" }}</span></td>
+            <td class="numeric">{{ email.attachment_count }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card empty-state"><strong>No email imported yet</strong><p>Import the inbox bundle to populate this workspace.</p><button class="button secondary" type="button" data-import-trigger>Import inbox</button></div>
+    {% endif %}
+  </section>
 {% endblock %}
 {% block scripts %}
 <script>
