@@ -1,55 +1,44 @@
 {% extends "base.html" %}
-{% block title %}Classification{% endblock %}
-{% block page_title %}Classification{% endblock %}
-{% block page_subtitle %}<p class="page-subtitle">{{ total_classified }} classified of {{ total_emails }} emails</p>{% endblock %}
+{% block title %}BL Comparison{% endblock %}
+{% block page_title %}BL Comparison{% endblock %}
+{% block page_subtitle %}<p class="page-subtitle">{{ total_bl }} email{{ "" if total_bl == 1 else "s" }}</p>{% endblock %}
 {% block header_actions %}
-  <button class="button secondary" id="reclassify" type="button" {% if not total_emails %}disabled{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#refresh-cw"></use></svg>Rerun classification</button>
+  <div class="verify-controls">
+    <select id="verify-mode" aria-label="Verification mode" {% if not total_bl %}disabled{% endif %}>
+      <option value="all">All BL emails</option>
+      <option value="pending" selected>Pending only</option>
+    </select>
+    <button class="button" id="verify-all" type="button" {% if not total_bl %}disabled{% endif %}>Verify all</button>
+    <a class="button secondary" href="/api/submission.json"><svg aria-hidden="true"><use href="/static/icons.svg#file-text"></use></svg>Download JSON</a>
+  </div>
 {% endblock %}
 {% block content %}
-  <p class="notification" id="classify-status" role="status" aria-live="polite"></p>
-  {% set display_emails = search_results if search_active else selected_emails %}
-  <section class="classification-hero" aria-labelledby="classification-overview">
-    <div>
-      <span class="eyebrow">Operations queue</span>
-      <h2 id="classification-overview">Classify, extract, compare, review</h2>
-      <p>Pick an email from the queue, then follow the SI/BL verification flow from files to report.</p>
-    </div>
-    <div class="hero-stats" aria-label="Classification totals">
-      <div><strong>{{ total_classified }}</strong><span>classified</span></div>
-      <div><strong>{{ total_emails }}</strong><span>emails</span></div>
-      <div><strong>{{ needs_classification_count }}</strong><span>need action</span></div>
-    </div>
-  </section>
+  <p class="notification" id="verify-status" role="status" aria-live="polite"></p>
 
   <div class="toolbar classification-toolbar">
     <form class="search-form" action="/classification" method="get">
+      <input type="hidden" name="status" value="{{ selected_status }}">
       <div class="search-wrap">
         <svg aria-hidden="true"><use href="/static/icons.svg#search"></use></svg>
-        <input class="search-input" type="search" name="q" value="{{ search_query or '' }}" placeholder="Search emails across categories" aria-label="Search emails">
+        <input class="search-input" type="search" name="q" value="{{ search_query or '' }}" placeholder="Search BL emails" aria-label="Search BL emails">
       </div>
       <button class="button secondary" type="submit">Search</button>
-      {% if search_active %}<a class="button ghost" href="/classification">Clear</a>{% endif %}
+      {% if search_active %}<a class="button ghost" href="/classification?status={{ selected_status }}">Clear</a>{% endif %}
     </form>
   </div>
 
-  {% if needs_classification_count %}
-    <div class="callout" role="alert">
-      <strong>{{ needs_classification_count }} email{{ "" if needs_classification_count == 1 else "s" }} need classification</strong>
-      The AI key is missing or classification is incomplete. Set the key and rerun classification to process these emails.
-    </div>
-  {% endif %}
-  <nav class="category-tabs" aria-label="Email categories">
-    {% for category in categories %}
-      <a href="/classification?category={{ category.key }}" {% if category.key == selected_category and not search_active %}aria-current="page"{% endif %}>{{ category.label }} <small>{{ category.count }}</small></a>
+  <nav class="category-tabs" aria-label="Verification status">
+    {% for tab in status_tabs %}
+      <a href="/classification?status={{ tab.key }}{% if search_query %}&q={{ search_query | urlencode }}{% endif %}" {% if tab.key == selected_status %}aria-current="page"{% endif %}>{{ tab.label }} <small>{{ tab.count }}</small></a>
     {% endfor %}
   </nav>
 
-  <section class="verification-workspace" aria-label="{{ 'Search results' if search_active else selected_label }} emails">
+  <section class="verification-workspace" aria-label="{{ selected_status_label }} BL emails">
     <div class="queue-panel section-stack">
       <div class="section-heading">
         <div>
-          <h2>{% if search_active %}Search results{% else %}{{ selected_label }} queue{% endif %}</h2>
-          <p>{% if search_active %}{{ search_results|length }} matching email{{ "" if search_results|length == 1 else "s" }} for "{{ search_query }}"{% else %}{{ selected_emails|length }} emails · {{ selected_action }}{% endif %}</p>
+          <h2>{{ selected_status_label }}</h2>
+          <p>{{ display_emails|length }} shown</p>
         </div>
       </div>
       {% if display_emails %}
@@ -62,7 +51,6 @@
             <span class="queue-meta">
               <span>{{ email.sender }}</span>
               <span>{{ email.attachment_count }} file{{ "" if email.attachment_count == 1 else "s" }}</span>
-              {% if search_active %}<span>{{ email.category_label or "Unclassified" }}</span>{% endif %}
             </span>
           </span>
           {% if email.verification %}
@@ -74,7 +62,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <div class="card empty-state">{% if search_active %}<strong>No matching emails</strong><p>Try a different search term.</p>{% else %}<strong>No {{ selected_label|lower }} emails</strong><p>Choose another category or import inbox data.</p>{% endif %}<a class="button secondary" href="/">Go to overview</a></div>
+      <div class="card empty-state"><strong>No emails found</strong><p>{% if search_active %}Try a different search term.{% else %}This status has no BL Comparison emails.{% endif %}</p></div>
       {% endif %}
     </div>
 
@@ -101,25 +89,20 @@
         </div>
 
         <div class="summary-grid" aria-label="Selected email summary">
-          <div><span>Category</span><strong>{{ email.category_label or "Unclassified" }}</strong></div>
-          <div><span>Classification</span><strong>{% if email.classification_confidence is not none %}{{ "%.0f"|format(email.classification_confidence * 100) }}%{% else %}-{% endif %}</strong></div>
+          <div><span>Status</span><strong>{% if email.verification %}{{ email.verification.verdict_label }}{% else %}Pending{% endif %}</strong></div>
           <div><span>Files</span><strong>{{ email.attachment_count }}</strong></div>
+          <div><span>Documents</span><strong>{{ email.document_types }}</strong></div>
           <div><span>Classified</span><strong>{{ email.classified_at[:16].replace("T", " ") if email.classified_at else "-" }}</strong></div>
         </div>
 
-        {% if selected_category == bl_category %}
         <section class="verification-command">
           <div>
             <span class="eyebrow">SI/BL verification</span>
-            <h3>Next step</h3>
-            {% if email.verification %}
-            <p>Verification has been run. Review exceptions, download the report, or rerun extraction if the files changed.</p>
-            {% else %}
-            <p>Run extraction to read SI/BL files, build shipment JSON, and compare the two documents.</p>
-            {% endif %}
+            <h3>{{ "Verified" if email.verification else "Pending" }}</h3>
+            <p>{{ "Review the result or rerun if the files changed." if email.verification else "Run verification for this email." }}</p>
           </div>
           <div class="command-actions">
-            <button class="button" type="button" data-extract-button data-email-id="{{ email.email_id }}"><span>{{ "Extract again" if email.verification else "Run SI/BL verification" }}</span></button>
+            <button class="button" type="button" data-extract-button data-email-id="{{ email.email_id }}"><span>{{ "Verify again" if email.verification else "Verify" }}</span></button>
             {% if email.verification %}
             <a class="button secondary" href="/api/verification/{{ email.email_id | urlencode }}/report.pdf">Download report</a>
             {% endif %}
@@ -128,7 +111,7 @@
         </section>
 
         <section class="detail-section" data-issues-section {% if not email.has_extraction_issues %}hidden{% endif %}>
-          <div class="section-heading compact"><div><h3>Extraction issues</h3><p>Items that may block a clean comparison.</p></div></div>
+          <div class="section-heading compact"><div><h3>Extraction issues</h3></div></div>
           <ul class="issue-list" data-issue-list>
             {% for issue in email.extraction_errors %}
             <li class="issue error"><strong>{{ issue.filename }} — {{ issue.code }}</strong><p>{{ issue.detail }}</p></li>
@@ -140,7 +123,7 @@
         </section>
 
         <section class="verification-review detail-section" data-verification data-email-id="{{ email.email_id }}">
-          <div class="section-heading compact"><div><h3>Verification result</h3><p>Decision, review state, and actions for this SI/BL pair.</p></div></div>
+          <div class="section-heading compact"><div><h3>Verification result</h3></div></div>
           {% if email.verification %}
           <div class="result-card {{ email.verification.verdict_class }}">
             <div>
@@ -164,13 +147,12 @@
             <a class="record-link" href="/audit?q={{ email.email_id | urlencode }}">Open audit trail</a>
           </div>
           {% else %}
-          <p class="muted">No result yet. Run SI/BL verification to compare shipment fields.</p>
+          <p class="muted">No result yet.</p>
           {% endif %}
         </section>
-        {% endif %}
 
         <section class="detail-section">
-          <div class="section-heading compact"><div><h3>Documents</h3><p>Open a processed file to inspect extracted and normalized values.</p></div></div>
+          <div class="section-heading compact"><div><h3>Documents</h3></div></div>
           {% if email.documents %}
           <div class="document-grid">{% for document in email.documents %}<article class="document-tile" data-document-id="{{ document.id }}"><button class="file-button" type="button" data-attachment-open data-document-id="{{ document.id }}">{{ document.filename }}</button><div class="file-badges"><small data-doc-type>{{ document.document_type }} · {{ document.status }}</small>{% if document.extraction_status %}<small class="status {{ document.extraction_status_class }}" data-extraction-badge>{{ document.extraction_status }}</small>{% endif %}{% if document.detected_document_type and document.detected_document_type != document.document_type %}<small class="status danger" data-detected-badge>{{ document.detected_document_type }}</small>{% endif %}</div></article>{% endfor %}</div>
           {% else %}<p class="muted">No attachments recorded.</p>{% endif %}
@@ -180,19 +162,11 @@
         <section class="detail-section"><a class="record-link" href="/inbox/{{ email.email_id | urlencode }}">Open full email <svg aria-hidden="true"><use href="/static/icons.svg#arrow-right"></use></svg></a></section>
       </article>
       {% else %}
-      <div class="empty-state"><strong>No email selected</strong><p>{% if search_active %}No emails match your search.{% else %}Emails in this category will appear here.{% endif %}</p></div>
+      <div class="empty-state"><strong>No email selected</strong></div>
       {% endfor %}
     </section>
   </section>
-  {% if needs_classification_count %}
-  <section class="section-stack" aria-labelledby="needs-heading">
-    <div class="section-heading"><div><h2 id="needs-heading">Needs classification</h2><p>Items waiting for a valid category</p></div></div>
-    <div class="table-wrap"><table class="data-table">
-      <thead><tr><th scope="col">Email</th><th scope="col">Subject</th><th scope="col">Sender</th><th scope="col">Source</th></tr></thead>
-      <tbody>{% for email in needs_classification %}<tr><td><a class="record-link" href="/inbox/{{ email.email_id | urlencode }}">{{ email.email_id }}</a></td><td class="subject">{{ email.subject }}</td><td>{{ email.sender }}</td><td><span class="status warning">{{ email.classification_source or "Missing" }}</span></td></tr>{% endfor %}</tbody>
-    </table></div>
-  </section>
-  {% endif %}
+
   <script type="application/json" id="extraction-data">{{ extraction_data_json | safe }}</script>
   <script type="application/json" id="verification-data">{{ verification_data_json | safe }}</script>
   <dialog class="compare-modal" id="compare-modal">
@@ -219,22 +193,31 @@
     document.querySelectorAll("[data-email-row]").forEach((row) => row.classList.toggle("is-selected", row.dataset.emailRow === target));
     document.querySelectorAll("[data-email-detail]").forEach((detail) => detail.classList.toggle("is-active", detail.dataset.emailDetail === target));
   }));
-  document.querySelector("#reclassify").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const status = document.querySelector("#classify-status");
-    button.disabled = true;
-    status.classList.remove("error");
-    status.textContent = "Classifying emails...";
+
+  const verifyButton = document.querySelector("#verify-all");
+  const verifyMode = document.querySelector("#verify-mode");
+  const verifyStatus = document.querySelector("#verify-status");
+  verifyButton?.addEventListener("click", async () => {
+    verifyButton.disabled = true;
+    if (verifyMode) verifyMode.disabled = true;
+    verifyStatus.classList.remove("error");
+    verifyStatus.textContent = "Verifying BL emails...";
     try {
-      const response = await fetch("/api/classify-imported-emails", { method: "POST" });
-      if (!response.ok) throw new Error("Classification failed. Try again.");
+      const response = await fetch("/api/verify-bl-comparison", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: verifyMode?.value || "pending" }),
+      });
+      if (!response.ok) throw new Error("Verification failed. Try again.");
       const result = await response.json();
-      status.textContent = `Processed ${result.emails} emails.`;
-      window.setTimeout(() => window.location.reload(), 700);
+      const skipped = result.skipped ? ` ${result.skipped} skipped.` : "";
+      verifyStatus.textContent = `Verified ${result.verified} email${result.verified === 1 ? "" : "s"}.${skipped}`;
+      window.setTimeout(() => window.location.reload(), 800);
     } catch (error) {
-      status.classList.add("error");
-      status.textContent = error.message;
-      button.disabled = false;
+      verifyStatus.classList.add("error");
+      verifyStatus.textContent = error.message;
+      verifyButton.disabled = false;
+      if (verifyMode) verifyMode.disabled = false;
     }
   });
 
@@ -338,7 +321,7 @@
     if (!entry) {
       const p = document.createElement("p");
       p.className = "muted";
-      p.textContent = "Attachments not yet processed. Press “Extract all text” first.";
+      p.textContent = "Not processed yet.";
       modalBody.appendChild(p);
       compareModal.showModal();
       return;
@@ -399,8 +382,8 @@
     button.addEventListener("click", () => openAttachmentModal(button.dataset.documentId));
   });
 
-  document.querySelector("[data-modal-close]").addEventListener("click", () => compareModal.close());
-  compareModal.addEventListener("click", (event) => {
+  document.querySelector("[data-modal-close]")?.addEventListener("click", () => compareModal.close());
+  compareModal?.addEventListener("click", (event) => {
     if (event.target === compareModal) compareModal.close();
   });
 
@@ -514,32 +497,32 @@
     button.addEventListener("click", () => openReviewModal(button.dataset.emailId));
   });
 
-  document.querySelector("[data-review-close]").addEventListener("click", () => reviewModal.close());
-  reviewModal.addEventListener("click", (event) => {
+  document.querySelector("[data-review-close]")?.addEventListener("click", () => reviewModal.close());
+  reviewModal?.addEventListener("click", (event) => {
     if (event.target === reviewModal) reviewModal.close();
   });
 
   document.querySelectorAll("[data-extract-button]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+    button.addEventListener("click", async () => {
       const emailId = button.dataset.emailId;
       const status = button.closest(".verification-command, .detail-section")?.querySelector("[data-extract-status]");
       const label = button.querySelector("span");
       button.disabled = true;
-      label.textContent = "Extracting…";
-      if (status) { status.classList.remove("error"); status.textContent = "Extracting attachments…"; }
+      label.textContent = "Verifying...";
+      if (status) { status.classList.remove("error"); status.textContent = "Verifying email..."; }
       try {
         const response = await fetch(`/api/extract/${encodeURIComponent(emailId)}`, { method: "POST" });
-        if (!response.ok) throw new Error("Extraction failed. Try again.");
+        if (!response.ok) throw new Error("Verification failed. Try again.");
         const data = await response.json();
         updateBadges(emailId, data.extractions);
         updateIssues(emailId, data.extractions);
         updateExtractionData(emailId, data.extractions);
-        label.textContent = "Extract again";
-        const verdict = data.verification ? ` — ${data.verification.verdict_label}` : "";
-        if (status) status.textContent = `Done — ${data.extractions.length} document(s) processed${verdict}.`;
+        label.textContent = "Verify again";
+        const verdict = data.verification ? ` ${data.verification.verdict_label}.` : ".";
+        if (status) status.textContent = `Done.${verdict}`;
         window.setTimeout(() => window.location.reload(), 800);
       } catch (error) {
-        label.textContent = "Extract all text";
+        label.textContent = "Verify";
         if (status) { status.classList.add("error"); status.textContent = error.message; }
       } finally {
         button.disabled = false;

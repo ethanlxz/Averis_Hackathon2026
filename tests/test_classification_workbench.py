@@ -11,6 +11,7 @@ from services.classification_schema import (
     SPAM,
 )
 from services.classification_workbench import (
+    build_bl_verification_view_model,
     build_classification_view_model,
     classification_summary,
 )
@@ -21,6 +22,8 @@ def email(
     category,
     classification_source="deepseek",
     documents=None,
+    verifications=None,
+    extractions=None,
 ):
     return SimpleNamespace(
         id=1,
@@ -35,6 +38,8 @@ def email(
         classified_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
         created_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
         documents=documents or [],
+        verifications=verifications or [],
+        extractions=extractions or [],
     )
 
 
@@ -44,6 +49,28 @@ def document(filename, document_type):
         filename=filename,
         document_type=document_type,
         status="imported",
+    )
+
+
+def verification(result):
+    return SimpleNamespace(
+        id=1,
+        email_id="email_001",
+        si_document_id=None,
+        bl_document_id=None,
+        result=result,
+        confidence=0.95,
+        reviewer_status="pending",
+        review_reason=None,
+        has_defect=result == "MISMATCH",
+        defect_fields=[],
+        mismatch_details=[],
+        review_details=[],
+        missing_fields=[],
+        corrected_fields=None,
+        verification_hash="abc123",
+        created_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
+        reviewed_at=None,
     )
 
 
@@ -100,6 +127,23 @@ class ClassificationWorkbenchTests(unittest.TestCase):
         self.assertEqual(selected["email_id"], "email_004")
         self.assertEqual(selected["document_types"], "BL, SI")
         self.assertEqual(len(selected["documents"]), 2)
+
+    def test_bl_verification_model_counts_status_buckets(self):
+        model = build_bl_verification_view_model(
+            [
+                email("email_match", BL_COMPARISON, verifications=[verification("MATCH")]),
+                email("email_mismatch", BL_COMPARISON, verifications=[verification("MISMATCH")]),
+                email("email_review", BL_COMPARISON, verifications=[verification("REVIEW")]),
+                email("email_pending", BL_COMPARISON),
+            ]
+        )
+
+        counts = {tab["key"]: tab["count"] for tab in model["status_tabs"]}
+        self.assertEqual(counts["all"], 4)
+        self.assertEqual(counts["matched"], 1)
+        self.assertEqual(counts["mismatch"], 1)
+        self.assertEqual(counts["needs_review"], 1)
+        self.assertEqual(counts["pending"], 1)
 
 
 class FakeQuery:

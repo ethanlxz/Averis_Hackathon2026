@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -17,6 +19,7 @@ from services.pdf_report import generate_report
 from services.submission_service import SubmissionService
 from services.verification_service import VerificationService, serialize_verification
 from services.audit_service import list_events, record_classification, serialize_detail
+from services.bl_verification_service import BLVerificationBatchService
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -180,9 +183,30 @@ def extract_all(db: Session = Depends(get_db)) -> dict[str, int | str | list]:
     }
 
 
+@router.post("/verify-bl-comparison")
+def verify_bl_comparison(payload: dict, db: Session = Depends(get_db)) -> dict[str, int | str]:
+    mode = str(payload.get("mode", "pending"))
+    if mode not in ("all", "pending"):
+        raise HTTPException(status_code=400, detail="mode must be all or pending")
+
+    result = BLVerificationBatchService().run(db, mode)
+    db.commit()
+    return result
+
+
 @router.get("/submission")
 def get_submission(db: Session = Depends(get_db)) -> dict[str, dict]:
     return SubmissionService().export(db)
+
+
+@router.get("/submission.json")
+def download_submission_json(db: Session = Depends(get_db)) -> Response:
+    payload = SubmissionService().export(db)
+    return Response(
+        content=json.dumps(payload, indent=2, sort_keys=True),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="submission.json"'},
+    )
 
 
 @router.post("/submission/refresh")

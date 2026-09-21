@@ -7,12 +7,42 @@ from app.database import get_db
 from models.document import Document
 from models.email_message import EmailMessage
 from models.verification import Verification
-from services.classification_workbench import get_classification_view_model
+from services.classification_workbench import (
+    CATEGORY_LABELS,
+    get_bl_verification_view_model,
+    get_classification_view_model,
+)
 from services.audit_service import list_events
 
 
 router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="templates")
+
+
+def _build_inbox_category_tabs(emails: list[EmailMessage]) -> list[dict[str, int | str]]:
+    counts = {category: 0 for category in CATEGORY_LABELS}
+    unclassified_count = 0
+
+    for email in emails:
+        if email.category in counts:
+            counts[email.category] += 1
+        else:
+            unclassified_count += 1
+
+    tabs = [{"key": "", "label": "All", "count": len(emails)}]
+    tabs.extend(
+        {"key": key, "label": label, "count": counts[key]}
+        for key, label in CATEGORY_LABELS.items()
+    )
+    if unclassified_count:
+        tabs.append(
+            {
+                "key": "unclassified",
+                "label": "Unclassified",
+                "count": unclassified_count,
+            }
+        )
+    return tabs
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -63,13 +93,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 @router.get("/classification", response_class=HTMLResponse)
 def classification_workbench(
     request: Request,
-    category: str | None = None,
+    status: str | None = None,
     q: str | None = None,
     db: Session = Depends(get_db),
 ):
-    view_model = get_classification_view_model(
+    view_model = get_bl_verification_view_model(
         db,
-        selected_category=category,
+        selected_status=status,
         search_query=q,
     )
     return templates.TemplateResponse(
@@ -85,7 +115,11 @@ def inbox_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "inbox.html",
-        {"emails": emails, "active_page": "inbox"},
+        {
+            "emails": emails,
+            "category_tabs": _build_inbox_category_tabs(emails),
+            "active_page": "inbox",
+        },
     )
 
 

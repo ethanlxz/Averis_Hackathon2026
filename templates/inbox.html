@@ -2,11 +2,21 @@
 {% block title %}Inbox{% endblock %}
 {% block page_title %}Inbox{% endblock %}
 {% block page_subtitle %}<p class="page-subtitle">{{ emails|length }} emails</p>{% endblock %}
-{% block header_actions %}<a class="button" href="/upload"><svg aria-hidden="true"><use href="/static/icons.svg#upload"></use></svg>Upload files</a>{% endblock %}
+{% block header_actions %}
+  <button class="button secondary" id="inbox-reclassify" type="button" {% if not emails %}disabled{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#refresh-cw"></use></svg>Rerun classification</button>
+  <a class="button" href="/upload"><svg aria-hidden="true"><use href="/static/icons.svg#upload"></use></svg>Upload files</a>
+{% endblock %}
 {% block content %}
-  <div class="toolbar">
+  <p class="notification" id="inbox-classify-status" role="status" aria-live="polite"></p>
+  {% if emails %}
+  <nav class="category-tabs inbox-category-tabs" aria-label="Inbox categories" role="tablist">
+    {% for category in category_tabs %}
+      <button type="button" role="tab" data-category-tab="{{ category.key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ category.label }} <small>{{ category.count }}</small></button>
+    {% endfor %}
+  </nav>
+  {% endif %}
+  <div class="toolbar inbox-toolbar">
     <div class="search-wrap"><svg aria-hidden="true"><use href="/static/icons.svg#search"></use></svg><input class="search-input" id="email-search" type="search" placeholder="Search email" aria-label="Search email"></div>
-    <div class="filters"><select id="category-filter" aria-label="Filter by category"><option value="">All categories</option><option value="BL_COMPARISON">BL comparison</option><option value="SI_REQUEST">SI request</option><option value="INVOICE_QUERY">Invoice query</option><option value="GENERAL">General</option><option value="SPAM">Spam</option><option value="unclassified">Unclassified</option></select></div>
     <span class="muted tabular" id="email-results" aria-live="polite"></span>
   </div>
   {% if emails %}
@@ -32,23 +42,50 @@
 {% block scripts %}
 <script>
   const emailSearch = document.querySelector("#email-search");
-  const categoryFilter = document.querySelector("#category-filter");
+  const categoryTabs = [...document.querySelectorAll("[data-category-tab]")];
   const emailRows = [...document.querySelectorAll("[data-filter-row]")];
+  let selectedCategory = "";
+
   function filterEmails() {
     const query = emailSearch.value.trim().toLowerCase();
-    const category = categoryFilter.value;
     let visible = 0;
     emailRows.forEach((row) => {
-      const show = row.dataset.search.includes(query) && (!category || row.dataset.category === category);
+      const show = row.dataset.search.includes(query) && (!selectedCategory || row.dataset.category === selectedCategory);
       row.hidden = !show;
       if (show) visible++;
     });
-    document.querySelector("#email-results").textContent = `${visible} shown`;
+    document.querySelector("#email-results").textContent = `${visible} of ${emailRows.length} shown`;
     const empty = document.querySelector("#no-matches");
     if (empty) empty.hidden = visible !== 0;
   }
+
+  categoryTabs.forEach((tab) => tab.addEventListener("click", () => {
+    selectedCategory = tab.dataset.categoryTab;
+    categoryTabs.forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+    filterEmails();
+  }));
+
   emailSearch.addEventListener("input", filterEmails);
-  categoryFilter.addEventListener("change", filterEmails);
+
+  document.querySelector("#inbox-reclassify")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#inbox-classify-status");
+    button.disabled = true;
+    status.classList.remove("error");
+    status.textContent = "Classifying emails...";
+    try {
+      const response = await fetch("/api/classify-imported-emails", { method: "POST" });
+      if (!response.ok) throw new Error("Classification failed. Try again.");
+      const result = await response.json();
+      status.textContent = `Processed ${result.emails} emails.`;
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      status.classList.add("error");
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+
   filterEmails();
 </script>
 {% endblock %}

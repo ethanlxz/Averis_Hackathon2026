@@ -35,6 +35,14 @@ PIPELINE_STAGES = (
     "Report",
 )
 
+VERIFICATION_STATUS_TABS = (
+    {"key": "all", "label": "All"},
+    {"key": "matched", "label": "Matched"},
+    {"key": "mismatch", "label": "Mismatch"},
+    {"key": "needs_review", "label": "Needs review"},
+    {"key": "pending", "label": "Pending"},
+)
+
 
 def build_pipeline_stages(email: EmailMessage) -> list[dict[str, Any]]:
     """Map a single email to the end-to-end SI/BL verification pipeline."""
@@ -164,6 +172,29 @@ def get_classification_view_model(
     )
 
 
+def get_bl_verification_view_model(
+    db: Session,
+    selected_status: str | None = None,
+    search_query: str | None = None,
+) -> dict[str, Any]:
+    emails = (
+        db.query(EmailMessage)
+        .options(
+            selectinload(EmailMessage.documents),
+            selectinload(EmailMessage.extractions),
+            selectinload(EmailMessage.verifications),
+        )
+        .filter(EmailMessage.category == BL_COMPARISON)
+        .order_by(EmailMessage.email_id)
+        .all()
+    )
+    return build_bl_verification_view_model(
+        emails,
+        selected_status=selected_status,
+        search_query=search_query,
+    )
+
+
 def build_classification_view_model(
     emails: list[EmailMessage],
     selected_category: str | None = None,
@@ -235,6 +266,74 @@ def build_classification_view_model(
     }
 
 
+def build_bl_verification_view_model(
+    emails: list[EmailMessage],
+    selected_status: str | None = None,
+    search_query: str | None = None,
+) -> dict[str, Any]:
+    statuses = {tab["key"] for tab in VERIFICATION_STATUS_TABS}
+    selected = selected_status if selected_status in statuses else "all"
+    groups = {status: [] for status in statuses}
+    groups["all"] = []
+    extraction_lookup: dict[str, Any] = {}
+    verification_lookup: dict[str, Any] = {}
+    query = (search_query or "").strip()
+
+    for email in emails:
+        item = serialize_email(email)
+        item["verification_status"] = verification_status_key(item)
+        groups["all"].append(item)
+        groups[item["verification_status"]].append(item)
+
+        for document in item["documents"]:
+            if document.get("extraction_method"):
+                extraction_lookup[str(document["id"])] = {
+                    "filename": document["filename"],
+                    "document_type": document["document_type"],
+                    "extraction_method": document.get("extraction_method"),
+                    "fields": document.get("fields"),
+                    "normalized_fields": document.get("normalized_fields"),
+                }
+        if item.get("verification"):
+            verification_lookup[item["email_id"]] = item["verification"]
+
+    selected_emails = groups[selected]
+    display_emails = [
+        item for item in selected_emails if _search_matches(item, query)
+    ] if query else selected_emails
+    counts = {status: len(groups[status]) for status in groups}
+    selected_label = next(
+        tab["label"] for tab in VERIFICATION_STATUS_TABS if tab["key"] == selected
+    )
+
+    return {
+        "status_tabs": [
+            {
+                "key": tab["key"],
+                "label": tab["label"],
+                "count": counts[tab["key"]],
+            }
+            for tab in VERIFICATION_STATUS_TABS
+        ],
+        "status_groups": groups,
+        "counts": counts,
+        "total_bl": counts["all"],
+        "total_classified": counts["all"],
+        "total_emails": counts["all"],
+        "selected_status": selected,
+        "selected_status_label": selected_label,
+        "selected_emails": selected_emails,
+        "display_emails": display_emails,
+        "active_email": display_emails[0] if display_emails else None,
+        "pipeline_stages": PIPELINE_STAGES,
+        "bl_category": BL_COMPARISON,
+        "search_query": search_query,
+        "search_active": bool(query),
+        "extraction_data_json": json.dumps(extraction_lookup).replace("<", "\\u003c"),
+        "verification_data_json": json.dumps(verification_lookup).replace("<", "\\u003c"),
+    }
+
+
 def classification_summary(db: Session) -> dict[str, Any]:
     view_model = get_classification_view_model(db)
     return {
@@ -268,6 +367,20 @@ def _search_matches(item: dict[str, Any], query: str) -> bool:
         ]
     ).casefold()
     return query.casefold() in haystack
+
+
+def verification_status_key(item: dict[str, Any]) -> str:
+    verification = item.get("verification")
+    if not verification:
+        return "pending"
+    result = verification.get("result")
+    if result == "MATCH":
+        return "matched"
+    if result == "MISMATCH":
+        return "mismatch"
+    if result == "REVIEW":
+        return "needs_review"
+    return "pending"
 
 
 def serialize_email(email: EmailMessage) -> dict[str, Any]:
