@@ -2,6 +2,7 @@ from typing import Any
 
 from services.field_normalizer import (
     compare_ports,
+    is_missing_value,
     names_match,
     parse_container_count,
     parse_gross_weight_kg,
@@ -33,7 +34,7 @@ class ComparisonEngine:
             si_value = si_data.get(field)
             bl_value = bl_data.get(field)
 
-            if si_value in (None, "") or bl_value in (None, ""):
+            if is_missing_value(si_value) or is_missing_value(bl_value):
                 missing.append(field)
                 continue
 
@@ -44,6 +45,7 @@ class ComparisonEngine:
                 port_result = compare_ports(str(si_value), str(bl_value))
                 matched = port_result["match"]
                 if port_result["needs_review"]:
+                    matched = False
                     review_details[field] = {
                         "si": si_value,
                         "bl": bl_value,
@@ -69,6 +71,8 @@ class ComparisonEngine:
             if not matched:
                 mismatches.append(field)
                 mismatch_details[field] = {"si": si_value, "bl": bl_value}
+                if field in review_details:
+                    mismatch_details[field]["reason"] = review_details[field]["reason"]
 
         if missing:
             status = "NEEDS_REVIEW"
@@ -76,9 +80,6 @@ class ComparisonEngine:
         elif mismatches:
             status = "MISMATCH"
             review_reason = None
-        elif review_details:
-            status = "NEEDS_REVIEW"
-            review_reason = "port_code_mismatch"
         else:
             status = "OK"
             review_reason = None

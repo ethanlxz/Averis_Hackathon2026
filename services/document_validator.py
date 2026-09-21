@@ -51,11 +51,14 @@ class DocumentValidator:
                 }
             )
         elif detected and detected != expected_type:
-            if detected == "INVOICE":
+            if detected not in {"SI", "BL"}:
                 errors.append(
                     {
                         "code": "wrong_document_type",
-                        "detail": f"Expected {expected_type} but the content is an invoice.",
+                        "detail": (
+                            f"Expected {expected_type} but the content looks "
+                            f"like {detected}."
+                        ),
                         "expected": expected_type,
                         "detected": detected,
                     }

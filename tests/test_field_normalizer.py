@@ -2,7 +2,8 @@ import unittest
 from pathlib import Path
 
 from services.comparison_engine import ComparisonEngine
-from services.document_parser import DocumentParser
+from services.document_parser import DocumentParser, ShipmentFields, detect_document_class
+from services.document_validator import DocumentValidator
 from services.field_normalizer import (
     compare_ports,
     names_match,
@@ -130,6 +131,120 @@ class ComparisonNormalizationTests(unittest.TestCase):
         self.assertEqual(result["status"], "NEEDS_REVIEW")
         self.assertIn("container_count", result["missing_fields"])
 
+    def test_placeholder_values_need_review_as_missing_values(self):
+        result = self.engine.compare(
+            {"gross_weight_kg": "____MT"},
+            {"gross_weight_kg": "21577"},
+        )
+        self.assertEqual(result["status"], "NEEDS_REVIEW")
+        self.assertEqual(result["review_reason"], "missing_value")
+        self.assertIn("gross_weight_kg", result["missing_fields"])
+
+    def test_locode_city_contradiction_is_a_port_mismatch(self):
+        si_fields = {
+            "shipper": "A",
+            "consignee": "B",
+            "notify_party": "C",
+            "port_of_loading": "NHAVA SHEVA, INDIA (INNSA)",
+            "port_of_discharge": "SINGAPORE (SGSIN)",
+            "container_count": "1",
+            "gross_weight_kg": "1000",
+        }
+        bl_fields = dict(si_fields)
+        bl_fields["port_of_loading"] = "BUATAN, INDONESIA (INNSA)"
+
+        result = self.engine.compare(
+            si_fields,
+            bl_fields,
+        )
+        self.assertEqual(result["status"], "MISMATCH")
+        self.assertIn("port_of_loading", result["defect_fields"])
+        self.assertEqual(
+            result["mismatch_details"]["port_of_loading"]["reason"],
+            "locode_city_mismatch",
+        )
+
+
+class DocumentClassificationTests(unittest.TestCase):
+    def test_detects_non_shipping_document_classes(self):
+        self.assertEqual(detect_document_class("PACKING LIST\nCarton No."), "PACKING_LIST")
+        self.assertEqual(
+            detect_document_class("CERTIFICATE OF ORIGIN\nIssuing Authority"),
+            "CERTIFICATE_OF_ORIGIN",
+        )
+        self.assertEqual(detect_document_class("COMMERCIAL INVOICE\nInvoice No."), "INVOICE")
+
+    def test_wrong_document_classes_are_validation_errors_for_bl(self):
+        validator = DocumentValidator()
+
+        for text, detected in (
+            ("PACKING LIST\nCarton No.", "PACKING_LIST"),
+            ("CERTIFICATE OF ORIGIN\nIssuing Authority", "CERTIFICATE_OF_ORIGIN"),
+            ("COMMERCIAL INVOICE\nInvoice No.", "INVOICE"),
+        ):
+            result = validator.validate("BL", text, ShipmentFields(shipper="A"))
+            self.assertEqual(result.status, "error")
+            self.assertEqual(result.detected_document_type, detected)
+            self.assertEqual(result.errors[0]["code"], "wrong_document_type")
+
+
+class DocumentParserLabelOnlyLayoutTests(unittest.TestCase):
+    def test_parses_label_only_multiline_docx_style_layout(self):
+        text = """
+BILL OF LADING (DRAFT)
+
+Shipper (Principal or Seller)
+
+APRIL FINE PAPER TRADING
+ON BEHALF OF VITAL SOLUTIONS PTE LTD
+77 ROBINSON ROAD, #21-01
+SINGAPORE 068896
+
+Consignee
+
+AL GURG STATIONERY LLC
+P.O. BOX 5069
+DUBAI, UNITED ARAB EMIRATES
+
+Notify
+
+AL GURG STATIONERY LLC
+P.O. BOX 5069
+DUBAI, UNITED ARAB EMIRATES
+
+PORT OF LOADING
+
+SINGAPORE
+
+POD
+
+KARACHI, PAKISTAN
+
+Total Containers
+
+12 x 20'FCL
+
+Gross Wt (kgs)
+
+243,588
+"""
+
+        fields = DocumentParser().parse_text(text)
+
+        self.assertEqual(
+            fields.shipper,
+            "APRIL FINE PAPER TRADING; ON BEHALF OF VITAL SOLUTIONS PTE LTD; 77 ROBINSON ROAD, #21-01; SINGAPORE 068896",
+        )
+        self.assertEqual(
+            fields.consignee,
+            "AL GURG STATIONERY LLC; P.O. BOX 5069; DUBAI, UNITED ARAB EMIRATES",
+        )
+        self.assertEqual(fields.notify_party, fields.consignee)
+        self.assertEqual(fields.port_of_loading, "SINGAPORE")
+        self.assertEqual(fields.port_of_discharge, "KARACHI, PAKISTAN")
+        self.assertEqual(fields.container_count, "12")
+        self.assertEqual(fields.gross_weight_kg, "243588.0")
+
 
 class NormalizeShipmentJsonTests(unittest.TestCase):
     def test_matches_the_agreed_example(self):
@@ -192,12 +307,17 @@ class RealDocumentPairIntegrationTests(unittest.TestCase):
         self.assertEqual(result["defect_fields"], ["container_count"])
         self.assertEqual(result["mismatch_details"]["container_count"], {"si": "4", "bl": "3"})
 
-    def test_email_128_flags_weight_mismatch_and_port_review(self):
+    def test_email_128_flags_weight_and_port_mismatches(self):
         result = self._compare_pair("email_128")
         self.assertEqual(result["status"], "MISMATCH")
-        self.assertEqual(result["defect_fields"], ["gross_weight_kg"])
-        self.assertIn("port_of_loading", result["review_details"])
-        self.assertEqual(result["review_details"]["port_of_loading"]["reason"], "locode_city_mismatch")
+        self.assertEqual(
+            result["defect_fields"],
+            ["port_of_loading", "gross_weight_kg"],
+        )
+        self.assertEqual(
+            result["mismatch_details"]["port_of_loading"]["reason"],
+            "locode_city_mismatch",
+        )
 
 
 if __name__ == "__main__":

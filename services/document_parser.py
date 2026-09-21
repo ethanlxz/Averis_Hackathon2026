@@ -9,6 +9,7 @@ from typing import Callable
 from pydantic import BaseModel
 
 from services.field_normalizer import (
+    is_missing_value,
     normalize_whitespace_unicode,
     parse_container_count,
     parse_gross_weight_kg,
@@ -131,7 +132,7 @@ class ShipmentFields(BaseModel):
         }
 
     def missing_fields(self) -> list[str]:
-        return [snake for snake in SNAKE_FIELDS if not getattr(self, snake)]
+        return [snake for snake in SNAKE_FIELDS if is_missing_value(getattr(self, snake))]
 
     def is_complete(self) -> bool:
         return not self.missing_fields()
@@ -146,6 +147,8 @@ def _clean(value: str | None) -> str | None:
     if value is None:
         return None
     cleaned = re.sub(r"\s+", " ", value).strip()
+    if is_missing_value(cleaned):
+        return None
     return cleaned or None
 
 # A line is a candidate "Label: value" pair only if it doesn't start with
@@ -183,6 +186,20 @@ def _canonical_field_for_label(label: str) -> str | None:
 DOCUMENT_CLASS_MARKERS = (
     ("INVOICE", re.compile(r"(?:COMMERCIAL\s+)?INVOICE", re.IGNORECASE)),
     (
+        "PACKING_LIST",
+        re.compile(
+            r"PACKING\s+LIST|CARTON\s+NO\.?|DIMENSIONS|PACKING\s+LIST\s+ONLY",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "CERTIFICATE_OF_ORIGIN",
+        re.compile(
+            r"CERTIFICATE\s+OF\s+ORIGIN|COUNTRY\s+OF\s+ORIGIN|ISSUING\s+AUTHORITY",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "SI",
         re.compile(
             r"SHIPPING\s+INSTRUCTION|BILL\s+OF\s+LADING\s+INSTRUCTION|B/L\s+INSTRUCTION",
@@ -194,7 +211,7 @@ DOCUMENT_CLASS_MARKERS = (
 
 
 def detect_document_class(text: str | None) -> str | None:
-    """Return the semantic class (BL/SI/INVOICE) detected from document text.
+    """Return the semantic document class detected from document text.
 
     Returns None when the class cannot be determined from the text.
     """
@@ -283,7 +300,11 @@ class DocumentParser:
 
                 value = self._value_from_rest(line[match.end():])
                 if not value:
-                    value = self._value_from_next_lines(lines, index + 1)
+                    value = self._value_from_next_lines(
+                        lines,
+                        index + 1,
+                        multiline=snake in {"shipper", "consignee", "notify_party"},
+                    )
                 if value:
                     values[snake] = value
                 break  # first matching label wins
@@ -304,14 +325,18 @@ class DocumentParser:
 
         fields: dict[str, str | None] = {}
         for field in ("shipper", "consignee", "notify_party", "port_of_loading", "port_of_discharge"):
-            if field in raw_values:
-                fields[field] = normalize_whitespace_unicode(raw_values[field])
+            value = raw_values.get(field) or values.get(field)
+            if value:
+                fields[field] = normalize_whitespace_unicode(value)
 
-        if "container_count" in raw_values:
-            count = parse_container_count(raw_values["container_count"])
+        container_value = raw_values.get("container_count") or values.get("container_count")
+        if container_value:
+            count = parse_container_count(container_value)
             fields["container_count"] = None if count is None else str(count)
-        if "gross_weight_kg" in raw_values:
-            weight = parse_gross_weight_kg(raw_values["gross_weight_kg"])
+
+        weight_value = raw_values.get("gross_weight_kg") or values.get("gross_weight_kg")
+        if weight_value:
+            weight = parse_gross_weight_kg(weight_value)
             fields["gross_weight_kg"] = None if weight is None else str(weight)
 
         return ShipmentFields(**fields)
@@ -340,14 +365,28 @@ class DocumentParser:
         return _clean(rest) or None
 
     @staticmethod
-    def _value_from_next_lines(lines: list[str], start: int) -> str | None:
-        """Take the next non-empty line as the value (label-only layouts)."""
+    def _value_from_next_lines(
+        lines: list[str],
+        start: int,
+        multiline: bool = False,
+    ) -> str | None:
+        """Take following line values for label-only layouts."""
+        collected: list[str] = []
         for line in lines[start:]:
             if not line:
+                if collected:
+                    break
                 continue
             if DocumentParser._looks_like_label(line):
-                return None
-            return _clean(line)
+                break
+            if not multiline:
+                return _clean(line)
+            cleaned = _clean(line)
+            if cleaned:
+                collected.append(cleaned)
+
+        if collected:
+            return "; ".join(collected)
         return None
 
     @staticmethod

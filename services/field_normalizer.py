@@ -56,13 +56,25 @@ _CONTAINER_PAREN_RE = re.compile(r"\((\d+)\)")
 _CONTAINER_LEADING_INT_RE = re.compile(r"^\s*(\d+)\b")
 _WEIGHT_NUMBER_RE = re.compile(r"[\d,]+(?:\.\d+)?")
 _LB_UNIT_RE = re.compile(r"\bLBS?\b|\bPOUNDS?\b", re.IGNORECASE)
+_PLACEHOLDER_RE = re.compile(r"^[\s_\-?./]+(?:[A-Z]+)?$", re.IGNORECASE)
 LB_TO_KG = 0.453592
+MISSING_VALUE_TOKENS = {"", "N/A", "NA", "N.A.", "TBD", "-", "--", "?", "??", "???"}
 
 
 def normalize_whitespace_unicode(text: str) -> str:
     """Unicode-normalize (NFKC) and collapse whitespace/newlines."""
     text = unicodedata.normalize("NFKC", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def is_missing_value(raw: object) -> bool:
+    """Return true for blanks and placeholder values used in shipping docs."""
+    if raw is None:
+        return True
+    text = normalize_whitespace_unicode(str(raw))
+    if text.upper() in MISSING_VALUE_TOKENS:
+        return True
+    return bool(_PLACEHOLDER_RE.fullmatch(text))
 
 
 # --- Party names (shipper / consignee / notify party) -----------------
@@ -166,6 +178,8 @@ def normalize_port_value(raw: str) -> str:
 # --- Container count -----------------------------------------------------
 
 def parse_container_count(raw: str) -> int | None:
+    if is_missing_value(raw):
+        return None
     text = normalize_whitespace_unicode(raw)
 
     compound_matches = _CONTAINER_COMPOUND_RE.findall(text)
@@ -186,6 +200,8 @@ def parse_container_count(raw: str) -> int | None:
 # --- Gross weight (kg) ----------------------------------------------------
 
 def parse_gross_weight_kg(raw: str) -> float | None:
+    if is_missing_value(raw):
+        return None
     text = normalize_whitespace_unicode(raw)
 
     number_match = _WEIGHT_NUMBER_RE.search(text)
@@ -218,7 +234,9 @@ def normalize_shipment_json(data: dict[str, str | None]) -> dict[str, str]:
     for key, raw in data.items():
         raw_text = "" if raw is None else str(raw)
 
-        if key in _PARTY_JSON_KEYS:
+        if is_missing_value(raw_text):
+            normalized[key] = ""
+        elif key in _PARTY_JSON_KEYS:
             normalized[key] = normalize_party_name(raw_text)
         elif key in _PORT_JSON_KEYS:
             normalized[key] = normalize_port_value(raw_text)

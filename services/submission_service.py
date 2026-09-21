@@ -129,8 +129,6 @@ class SubmissionService:
             return "missing_attachment"
         if verification.review_reason == "missing_value":
             return "missing_value"
-        if verification.review_reason == "port_code_mismatch":
-            return "missing_value"
         if verification.review_reason == "extraction_error":
             return self._review_reason_from_extraction_errors(
                 db,
