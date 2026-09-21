@@ -629,6 +629,12 @@ import from the command line:
 docker compose exec averis python scripts/import_input_data.py --reset
 ```
 
+> **Important:** Import the bundled data only once. Do not click **Import
+> inbox** again or rerun the command while an import is running or after it has
+> completed. Repeated or concurrent imports can cause SQLite to report
+> `database is locked`. If an import is still processing, wait for it to finish
+> before continuing.
+
 When the import is complete, open the **BL Comparison** page, leave the mode set
 to **Pending only**, and click **Verify all**. This extraction and verification
 step is required to process the pending BL comparison emails and produce their
