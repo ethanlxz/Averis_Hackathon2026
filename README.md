@@ -53,13 +53,6 @@ Only BL comparison requests continue to the document verification step. Other ca
 - Uses the bundle `loader.py` abstraction through `InboxService`.
 - Stores imported emails and documents in SQLite.
 
-Key files:
-
-- `services/input_importer.py`
-- `services/inbox_service.py`
-- `models/email_message.py`
-- `models/document.py`
-
 ### 2. Email Classification
 
 Veritas classifies emails into the hackathon categories:
@@ -76,13 +69,6 @@ Classification supports:
 - Rule fallback when the LLM is unavailable or returns an invalid result.
 - Missing-key handling with a visible `missing_ai_key` source.
 - Category summary endpoints and a human workbench view.
-
-Key files:
-
-- `services/email_classifier.py`
-- `services/llm_service.py`
-- `services/classification_schema.py`
-- `services/classification_workbench.py`
 
 ### 3. Document Extraction
 
@@ -113,15 +99,6 @@ Extraction methods include:
 - PDF text extraction with `pdfplumber`, `pypdf`, and PyMuPDF fallback.
 - OCR fallback when a PDF has no extractable text layer.
 - Optional LLM gap filling when rule extraction finds only partial fields.
-
-Key files:
-
-- `services/extraction_service.py`
-- `services/document_parser.py`
-- `services/document_validator.py`
-- `services/ocr_service.py`
-- `services/ocr_providers/easyocr_provider.py`
-- `services/ocr_providers/openai_provider.py`
 
 ### 4. OCR Provider Selection
 
@@ -180,12 +157,6 @@ The comparison engine records:
 - `confidence`
 - `verification_hash`
 
-Key files:
-
-- `services/comparison_engine.py`
-- `services/field_normalizer.py`
-- `services/verification_service.py`
-
 ### 7. Human Review
 
 Uncertain cases are routed to review instead of being guessed.
@@ -222,12 +193,6 @@ The audit trail stores:
 
 This supports explainability and compliance-style review.
 
-Key files:
-
-- `services/audit_service.py`
-- `models/audit_event.py`
-- `templates/audit.html`
-
 ### 9. Classification Workbench UI
 
 The `/classification` page provides a human workbench for reviewing imported emails.
@@ -253,10 +218,6 @@ For verified emails, Veritas can generate a PDF report containing:
 - Reviewer status.
 - SI vs BL field comparison.
 - Mismatch and missing-field notes.
-
-Key file:
-
-- `services/pdf_report.py`
 
 ### 11. Submission Export
 
@@ -361,100 +322,56 @@ flowchart TD
 
 ## BL Comparison Edge Cases Handled
 
-### Email and document availability
-
-- Email classified as non-BL category does not enter the SI/BL verification pipeline.
-- Missing SI document creates `REVIEW` with `missing_document`.
-- Missing BL document creates `REVIEW` with `missing_document`.
-- Pending batch verification can skip already verified emails.
-- All-mode batch verification can rerun every BL comparison email.
-
-### File and extraction failures
-
-- Attachment bytes missing or unreadable returns a controlled extraction result instead of crashing.
-- Empty extracted text creates `empty_text`.
-- PDF extraction tries multiple text backends before OCR.
-- OCR provider unavailable returns empty text and routes the case through validation.
-- Unknown OCR provider uses a no-op provider.
-- OpenAI OCR API failure returns empty text instead of breaking the pipeline.
-- Image-only PDF pages are rendered before OCR.
-- Multi-page OCR output preserves page markers.
-
-### Wrong or confusing document types
-
-- Invoices are detected as wrong document type.
-- Packing lists are detected as wrong document type.
-- Certificates of origin are detected as wrong document type.
-- SI/BL title mismatches are warnings, not automatic errors, because shipping documents often use titles interchangeably.
-- Invoice text containing phrases like "not a shipping instruction" is protected by checking invoice markers first.
-- "Bill of Lading Instruction" is treated as SI, not BL.
-
-### Messy labels and layouts
-
-- Field labels with alternate names are recognized.
-- `Port of Loading`, `Load Port`, and `POL` map to the same field.
-- `Port of Discharge`, `Discharge Port`, and `POD` map to the same field.
-- `Notify` and `Notify Party` map to `notify_party`.
-- `To the Order of` maps to consignee.
-- Label-only layouts are supported by reading following lines.
-- Multi-line party names and addresses are joined for comparison.
-- Parenthetical label decorations are stripped when they are not part of the value.
-- XLSX rows are converted into label/value lines.
-- DOCX XML is parsed without depending on Microsoft Word.
-
-### Missing and placeholder values
-
-- `None`, blanks, `N/A`, `NA`, `TBD`, `-`, `--`, `?`, and similar placeholder-only values are treated as missing.
-- Missing field on either SI or BL routes the comparison to `NEEDS_REVIEW`.
-- Unparseable container count routes to `NEEDS_REVIEW`.
-- Unparseable gross weight routes to `NEEDS_REVIEW`.
-- Text found but no shipment fields recognized creates `unrecognized_layout`.
-
-### Party name comparison
-
-- Case differences are ignored.
-- Extra whitespace is collapsed.
-- Unicode text is normalized.
-- Periods and commas around company suffixes are ignored.
-- Common legal suffix synonyms are normalized, such as `Limited` to `LTD`, `Corporation` to `CORP`, and `Company` to `CO`.
-- Trailing suffix parentheticals such as `(LLC)` are folded into the party name.
-- Non-suffix parentheticals such as `(M)` are preserved.
-- Fuzzy matching allows minor formatting differences while rejecting genuinely different parties.
-
-### Port comparison
-
-- LOCODE values are preferred when present.
-- City/country text is used when LOCODE is absent.
-- Multi-port slash lists such as `RUGAO/NANTONG/SHANGHAI, CHINA` are split into city candidates.
-- Country abbreviations such as `US`, `USA`, `UK`, and `UAE` are normalized.
-- Known LOCODE-to-city contradictions are flagged for review/mismatch detail.
-- Unknown LOCODEs do not create false review flags.
-- Different LOCODEs are treated as mismatches.
-
-### Container count comparison
-
-- `1 x 40'HC` style values are parsed.
-- Multiple compound quantities are summed, such as `2 x 40'HC + 3 x 20'GP`.
-- Parenthetical counts are parsed, such as `TWO (2) CONTAINERS`.
-- Leading integer counts are parsed, such as `4 containers`.
-- Different SI/BL counts are reported as `container_count` defects.
-
-### Gross weight comparison
-
-- Commas are stripped from numeric values.
-- `KG`, `KGS`, and plain numeric values are parsed as kilograms.
-- Pounds and lbs are converted to kilograms.
-- A 1 kg tolerance is allowed to avoid false alarms from rounding.
-- Different parsed weights beyond tolerance are reported as `gross_weight_kg` defects.
-
-### Review and confidence
-
-- Verification confidence is calculated from the number of matched fields out of seven.
-- Extraction errors force `REVIEW` with confidence `0.0`.
-- Missing documents force `REVIEW` with confidence `0.0`.
-- Missing values create `NEEDS_REVIEW` rather than `MISMATCH`.
-- Fresh extraction changes reset previous reviewer decisions.
-- Verification hashes preserve traceability between source fields and decision.
+| Area | Edge case handled | Example | Result |
+| --- | --- | --- | --- |
+| Category routing | Non-BL emails do not enter the SI/BL verification pipeline. | `SI_REQUEST`, `INVOICE_QUERY`, `GENERAL`, and `SPAM` emails are classified only. | Category-only submission entry. |
+| Missing documents | SI or BL attachment is missing. | An email has only `email_225_BL.txt` or only an SI attachment. | `REVIEW` with `missing_document`. |
+| Batch reruns | Already verified emails should not always be reprocessed. | `mode=pending` skips emails that already have a verification row; `mode=all` reruns them. | Avoids duplicate work while still allowing full refresh. |
+| Attachment read failure | Attachment bytes are missing, moved, or unreadable. | A referenced file path cannot be loaded from the bundle or project fallback. | Controlled extraction result instead of a crash. |
+| Empty extraction | No usable text can be extracted. | Image-only PDF with OCR unavailable. | Extraction error `empty_text`, then `REVIEW`. |
+| PDF text fallback | PDF text extraction varies by file. | Text is attempted with `pdfplumber`, `pypdf`, then PyMuPDF before OCR. | More PDFs extract without needing OCR. |
+| OCR provider unavailable | Selected OCR provider cannot run. | `OCR_PROVIDER=easyocr` but EasyOCR is not installed, or `OCR_PROVIDER=openai` without a key. | Empty OCR result is handled visibly. |
+| OCR API failure | OpenAI OCR request fails. | Network/API failure while reading a scanned document. | Returns empty text and routes through validation. |
+| Multi-page scanned PDF | OCR output needs page separation. | A scanned SI or BL with multiple rendered pages. | OCR text is joined with page markers. |
+| Wrong document type | Attachment content is not an SI or BL. | Invoice, packing list, or certificate of origin attached under an SI/BL slot. | Extraction error `wrong_document_type`, then `REVIEW`. |
+| SI/BL title ambiguity | Shipping documents sometimes use SI and BL titles interchangeably. | Content expected as BL looks like SI, or expected as SI looks like BL. | Warning `document_type_mismatch`, not an automatic hard error. |
+| Invoice marker priority | Invoice text may include misleading shipping phrases. | Text says `COMMERCIAL INVOICE` and also contains wording like `not a shipping instruction`. | Detected as invoice first to avoid false SI classification. |
+| BL instruction wording | `Bill of Lading Instruction` is not the same as a BL draft. | SI document titled `BILL OF LADING INSTRUCTION`. | Treated as SI. |
+| Label aliases | Same field appears under different labels. | In `email_004`, SI uses `POD` and BL also uses `POD`; other cases use `Port of Discharge`. | Values map to `port_of_discharge`. |
+| Consignee alias | BL can identify consignee using order wording. | In `email_004`, BL uses `To the Order of: UAB NOVAKOPA`. | Parsed as `consignee`. |
+| Notify alias | Notify party label may be shortened. | In `email_004`, SI uses `Notify: EAST BRIGHT FZ-LLC`; BL uses `Notify Party: UAB NOVAKOPA`. | Both map to `notify_party`; mismatch is detected. |
+| Label-only layout | Labels and values may be split across lines. | DOCX-style layouts where `Consignee` appears on one line and the company/address starts below. | Parser reads following lines as the value. |
+| Multi-line party values | Names and addresses span several lines. | Shipper/consignee blocks with company plus address continuation lines. | Lines are joined for comparison. |
+| Parenthetical label decoration | Labels contain notes that are not values. | `Consignee (Non-Negotiable): ...` in `email_004`. | Decoration is ignored; value is extracted. |
+| XLSX row format | Spreadsheet fields may be stored as cells rather than text lines. | Label in first column and values in later columns. | Rows are converted to `label: value` lines. |
+| DOCX XML format | Word documents should not require Microsoft Word. | `.docx` attachments in the dataset. | Text is extracted through zipped XML. |
+| Missing placeholders | Placeholder strings should not compare as real values. | `N/A`, `NA`, `TBD`, `-`, `--`, `?`, blank, or placeholder-like strings. | Treated as missing and routed to `NEEDS_REVIEW`. |
+| Partial extraction | One or more required fields are missing after extraction. | SI has a parsed port but BL port is blank. | `NEEDS_REVIEW` with `missing_value`. |
+| Unrecognized layout | Text exists but no shipment fields are found. | OCR returns noisy text without recognizable labels. | Extraction error `unrecognized_layout`. |
+| Party punctuation | Company suffix punctuation varies. | `Pte. Ltd.` vs `PTE LTD`, or `Co., Ltd` vs `CO LTD`. | Normalized before fuzzy comparison. |
+| Legal suffix synonyms | Legal suffix words differ across documents. | `Limited` vs `LTD`, `Corporation` vs `CORP`, `Company` vs `CO`. | Normalized as equivalent. |
+| Parenthetical suffixes | Company suffix may appear in parentheses. | `Orient Links Co (LLC)`. | Folded into normalized party name. |
+| Non-suffix parentheticals | Some parentheses are part of the real company name. | `April Far East (M) Sdn Bhd`. | Preserved during normalization. |
+| Real party mismatch | Consignee or notify party genuinely differs. | `email_004`: SI has `EAST BRIGHT FZ-LLC`; BL has `UAB NOVAKOPA`. | `MISMATCH` with `consignee` and `notify_party` defects. |
+| Port LOCODE match | Different display text may still refer to the same port. | Same LOCODE appears on SI and BL. | Treated as matching. |
+| Port city/country fallback | LOCODE is absent. | `Rotterdam, Netherlands` style values. | Compares normalized city and country. |
+| Multi-port list | Loading port may include a slash-separated routing list. | `RUGAO/NANTONG/SHANGHAI, CHINA`. | Split into city candidates. |
+| Country abbreviation | Country may be abbreviated. | `USA`, `US`, `UK`, `UAE`. | Expanded to canonical country names. |
+| LOCODE/city contradiction | LOCODE and city text disagree. | `email_128`: `NHAVA SHEVA, INDIA (INNSA)` vs `BUATAN, INDONESIA (INNSA)`. | Mismatch detail includes `locode_city_mismatch`. |
+| Unknown LOCODE | Unknown code should not create a false review case. | `CONAKRY, GUINEA (GNCKY)` when not in the curated lookup. | Same unknown LOCODE can still match without false review. |
+| Different LOCODEs | Ports have different codes. | `SGSIN` vs `MYPKG`. | Port mismatch. |
+| Container quantity format | Container count includes size/type. | `email_004`: `6 x 40'HC` appears as `Total Containers` and `Container Count`. | Parsed as `6`, treated as matching. |
+| Multiple container lines | Several container quantities appear in one value. | `2 x 40'HC + 3 x 20'GP`. | Parsed as total `5`. |
+| Parenthetical count | Count is written as words plus number. | `TWO (2) CONTAINERS`. | Parsed as `2`. |
+| Leading count | Count appears before descriptive text. | `4 containers`. | Parsed as `4`. |
+| Container mismatch | SI and BL counts differ. | `email_111`: SI `4 x 20'GP`, BL `3 x 20'GP`. | `MISMATCH` with `container_count`. |
+| Weight formatting | Gross weight includes commas or unit variants. | `email_004`: `131,058 KG` appears as `Gross Wt (kgs)` and `Gross Weight (KG)`. | Parsed as `131058.0`, treated as matching. |
+| Pounds conversion | Weight is provided in pounds/lbs. | `1000 LBS`. | Converted to kilograms before comparison. |
+| Rounding tolerance | Tiny weight differences may be formatting noise. | Values within 1 kg. | Treated as matching. |
+| Weight mismatch | Parsed SI and BL weights differ beyond tolerance. | `email_128` includes a gross-weight mismatch. | `MISMATCH` with `gross_weight_kg`. |
+| Review confidence | Confidence should reflect how much could be compared. | Missing values reduce comparable field count. | Confidence is based on matched fields out of seven. |
+| Fresh extraction after review | Reviewer decisions should not survive changed source data. | Re-extracting changes fields or verification hash. | Reviewer status resets to pending. |
+| Audit traceability | Verification should be explainable later. | Every verification stores a hash, source field snapshots, mismatch details, and review details. | Audit trail can reconstruct the decision. |
 
 ## Implementation Details
 
