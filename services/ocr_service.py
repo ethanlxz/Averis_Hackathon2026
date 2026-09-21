@@ -1,33 +1,38 @@
 from __future__ import annotations
 
-import importlib.util
-import io
-import os
-from typing import Any
+from app.config import get_settings
+from services.ocr_providers.easyocr_provider import EasyOCRProvider
+from services.ocr_providers.openai_provider import OpenAIOCRProvider
 
 
-_reader: Any = None
+class NoopOCRProvider:
+    name = "none"
 
+    def is_available(self) -> bool:
+        return False
 
-def _easyocr_installed() -> bool:
-    return importlib.util.find_spec("easyocr") is not None
-
-
-def _language() -> str:
-    return os.getenv("OCR_LANG", "en")
+    def extract_text_from_bytes(self, data: bytes, kind: str = "") -> str:
+        return ""
 
 
 class OCRService:
     """OCR seam for scanned PDFs and standalone images.
 
-    Uses EasyOCR (PyTorch-based, no external binary). PDF pages are rendered
-    to images with PyMuPDF and then recognized page by page. Falls back to an
-    empty string when the libraries are missing so the pipeline degrades
-    gracefully. Set OCR_LANG to change the language (default "en").
+    Routes to the provider selected by OCR_PROVIDER. Supported providers are
+    "easyocr" and "openai". Falls back to an empty string when the selected
+    provider is unavailable so the pipeline degrades gracefully.
     """
 
+    def __init__(self, provider: object | None = None) -> None:
+        self.settings = get_settings()
+        self.provider = provider or self._build_provider()
+
+    @property
+    def provider_name(self) -> str:
+        return getattr(self.provider, "name", "none")
+
     def is_available(self) -> bool:
-        return _easyocr_installed()
+        return bool(self.provider.is_available())
 
     def extract_text(self, file_path: str) -> str:
         try:
@@ -38,107 +43,18 @@ class OCRService:
 
     def extract_text_from_bytes(self, data: bytes, kind: str = "") -> str:
         """OCR raw bytes. ``kind`` may be a file path, extension, or "pdf"."""
-        if not self.is_available():
-            return ""
-
-        normalized = str(kind or "").lower()
-        if normalized.endswith(".pdf") or normalized == "pdf":
-            return self.ocr_pdf(data)
-        return self.ocr_image(data)
-
-    def ocr_image(self, data: bytes) -> str:
-        reader = self._get_reader()
-        if reader is None:
-            return ""
-
         try:
-            import numpy as np
-            from PIL import Image
-
-            image = Image.open(io.BytesIO(data)).convert("RGB")
-            array = np.asarray(image)
+            return self.provider.extract_text_from_bytes(data, kind)
         except Exception:
             return ""
 
-        return self._read(reader, array)
-
-    def ocr_pdf(self, data: bytes) -> str:
-        fitz = self._load_pymupdf()
-        reader = self._get_reader()
-        if fitz is None or reader is None:
-            return ""
-
-        try:
-            import numpy as np
-            from PIL import Image
-
-            document = fitz.open(stream=data, filetype="pdf")
-        except Exception:
-            return ""
-
-        parts: list[str] = []
-        try:
-            for page in document:
-                pixmap = page.get_pixmap(dpi=300)
-                image = self._pixmap_to_image(Image, pixmap)
-                parts.append(self._read(reader, np.asarray(image)))
-        except Exception:
-            return ""
-        finally:
-            document.close()
-
-        return "\n".join(parts)
-
-    @staticmethod
-    def _read(reader, array) -> str:
-        try:
-            results = reader.readtext(array, detail=1, paragraph=False)
-        except Exception:
-            return ""
-
-        lines = []
-        for result in results or []:
-            if isinstance(result, (list, tuple)) and len(result) >= 2:
-                lines.append(str(result[1]))
-        return "\n".join(lines)
-
-    @classmethod
-    def _get_reader(cls):
-        global _reader
-        if _reader is not None:
-            return _reader
-
-        try:
-            import easyocr
-
-            _reader = easyocr.Reader([_language()], gpu=False, verbose=False)
-            return _reader
-        except Exception:
-            return None
-
-    @staticmethod
-    def _load_pymupdf():
-        try:
-            import pymupdf
-
-            return pymupdf
-        except ImportError:
-            pass
-        try:
-            import fitz
-
-            return fitz
-        except ImportError:
-            return None
-
-    @staticmethod
-    def _pixmap_to_image(Image, pixmap):
-        if pixmap.n == 4:
-            mode = "RGBA"
-        elif pixmap.n == 3:
-            mode = "RGB"
-        else:
-            mode = "L"
-        return Image.frombytes(
-            mode, [pixmap.width, pixmap.height], pixmap.samples
-        ).convert("RGB")
+    def _build_provider(self):
+        provider = (self.settings.ocr_provider or "easyocr").strip().lower()
+        if provider == "easyocr":
+            return EasyOCRProvider(language=self.settings.ocr_lang)
+        if provider == "openai":
+            return OpenAIOCRProvider(
+                api_key=self.settings.openai_api_key,
+                model=self.settings.openai_ocr_model,
+            )
+        return NoopOCRProvider()

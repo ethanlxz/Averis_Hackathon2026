@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Averis{% endblock %} · Averis</title>
+    <title>{% block title %}Averis Veritas{% endblock %} · Averis Veritas</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
       <div class="nav-backdrop" data-nav-close></div>
       <aside class="sidebar" id="sidebar" aria-label="Main navigation">
         <div class="brand-row">
-          <a class="brand" href="/" aria-label="Averis home"><span class="brand-mark">A</span><span>Averis</span></a>
+          <a class="brand" href="/" aria-label="Averis Veritas home"><span class="brand-mark">A</span><span>Averis Veritas</span></a>
           <button class="sidebar-close icon-button" type="button" aria-label="Close navigation" data-nav-close>
             <svg aria-hidden="true"><use href="/static/icons.svg#x"></use></svg>
           </button>
@@ -25,7 +25,7 @@
         <div class="nav-section-label">Workspace</div>
         <nav class="side-nav">
           <a href="/" {% if active_page == 'dashboard' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#layout-dashboard"></use></svg>Overview</a>
-          <a href="/classification" {% if active_page == 'classification' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#list-filter"></use></svg>Classification</a>
+          <a href="/classification" {% if active_page == 'classification' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#list-filter"></use></svg>Comparison</a>
           <a href="/inbox" {% if active_page == 'inbox' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#mail"></use></svg>Inbox</a>
           <a href="/library" {% if active_page == 'library' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#files"></use></svg>Documents</a>
           <a href="/upload" {% if active_page == 'upload' %}aria-current="page"{% endif %}><svg aria-hidden="true"><use href="/static/icons.svg#upload"></use></svg>Upload</a>
@@ -36,7 +36,7 @@
         </nav>
         <div class="sidebar-footer">
           <span class="account-avatar" aria-hidden="true">A</span>
-          <span><strong>Averis workspace</strong><small>Shipping operations</small></span>
+          <span><strong>Averis Veritas workspace</strong><small>Shipping operations</small></span>
         </div>
       </aside>
       <div class="workspace">

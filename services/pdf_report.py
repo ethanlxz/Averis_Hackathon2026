@@ -93,7 +93,7 @@ def generate_report(
     )
 
     story: list[Any] = []
-    story.append(Paragraph("Shipping Document Verification Report", title_style))
+    story.append(Paragraph("Averis Veritas Verification Report", title_style))
     story.append(Paragraph(f"Email: <b>{_esc(email_id)}</b>", body))
     story.append(Paragraph(f"Subject: {_esc(subject)}", body))
     story.append(Paragraph(f"Sender: {_esc(sender)}", body))

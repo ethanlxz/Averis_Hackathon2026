@@ -42,7 +42,7 @@
       {% endif %}
     </section>
     <section class="card" aria-labelledby="breakdown-heading">
-      <div class="panel-head"><h2 id="breakdown-heading">Classification</h2><a class="record-link" href="/classification">Review</a></div>
+      <div class="panel-head"><h2 id="breakdown-heading">Comparison</h2><a class="record-link" href="/classification">Review</a></div>
       <ul class="file-list">
         {% for category in classification.categories %}
         <li><a href="/classification?category={{ category.key }}">{{ category.label }}</a><strong class="tabular">{{ category.count }}</strong></li>

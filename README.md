@@ -1,6 +1,6 @@
-# Averis Project
+# Averis Veritas
 
-Phase 1 FastAPI foundation for the Shipping Document Verification AI.
+Phase 1 FastAPI foundation for Averis Veritas.
 
 ## Run
 
@@ -33,6 +33,10 @@ Supported settings:
 - `DEEPSEEK_BASE_URL`
 - `DEEPSEEK_MODEL`
 - `DEEPSEEK_TIMEOUT_SECONDS`
+- `OCR_PROVIDER`
+- `OCR_LANG`
+- `OPENAI_API_KEY`
+- `OPENAI_OCR_MODEL`
 
 ## Import the hackathon input data
 

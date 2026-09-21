@@ -277,7 +277,7 @@ class DocumentParser:
             return text, "xlsx"
         if kind == "image":
             text = self._extract_image(bytes_data)
-            return text, "ocr"
+            return text, self._ocr_method("ocr") if text else "ocr"
         return self._decode(bytes_data), "unknown"
 
       
@@ -531,7 +531,7 @@ class DocumentParser:
         if self._ocr_service is not None:
             ocr_text = self._ocr_service.extract_text_from_bytes(data, "pdf")
             if ocr_text:
-                return ocr_text, "pdf_ocr"
+                return ocr_text, self._ocr_method("pdf_ocr")
         return "", "pdf_text"
 
     @staticmethod
@@ -567,3 +567,7 @@ class DocumentParser:
         if self._ocr_service is None:
             return ""
         return self._ocr_service.extract_text_from_bytes(data, "image")
+
+    def _ocr_method(self, prefix: str) -> str:
+        provider = getattr(self._ocr_service, "provider_name", "")
+        return f"{prefix}_{provider}" if provider else prefix
