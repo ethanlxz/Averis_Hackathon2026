@@ -203,8 +203,8 @@
     const section = addSection(parent, "Review details");
     const details = verification || {};
     addMetaList(section, [
-      ["Review reason", details.review_reason],
-      ["Missing fields", (details.missing_fields || []).map((field) => fieldLabels[field] || field).join(", ")],
+      ["Review reason", details.review_reason_label || details.review_reason],
+      ["Missing fields", (details.missing_field_labels || (details.missing_fields || []).map((field) => fieldLabels[field] || field)).join(", ")],
       ["Corrected fields", details.corrected_fields ? JSON.stringify(details.corrected_fields) : "-"]
     ]);
   }

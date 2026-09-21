@@ -104,6 +104,33 @@ class GrossWeightTests(unittest.TestCase):
         self.assertAlmostEqual(parse_gross_weight_kg("1000 LBS"), 453.592)
 
 
+class ComparisonNormalizationTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = ComparisonEngine()
+
+    def test_compares_ocr_style_container_count(self):
+        result = self.engine.compare(
+            {"container_count": "8x 40HC"},
+            {"container_count": "8"},
+        )
+        self.assertNotIn("container_count", result["defect_fields"])
+
+    def test_compares_weight_with_units_and_commas(self):
+        result = self.engine.compare(
+            {"gross_weight_kg": "21,577 KG"},
+            {"gross_weight_kg": "21577.0"},
+        )
+        self.assertNotIn("gross_weight_kg", result["defect_fields"])
+
+    def test_unparseable_numeric_values_need_review_instead_of_crashing(self):
+        result = self.engine.compare(
+            {"container_count": "eight high cubes"},
+            {"container_count": "8"},
+        )
+        self.assertEqual(result["status"], "NEEDS_REVIEW")
+        self.assertIn("container_count", result["missing_fields"])
+
+
 class NormalizeShipmentJsonTests(unittest.TestCase):
     def test_matches_the_agreed_example(self):
         payload = {

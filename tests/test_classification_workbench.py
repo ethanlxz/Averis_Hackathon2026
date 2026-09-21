@@ -68,7 +68,7 @@ class ClassificationWorkbenchTests(unittest.TestCase):
 
         self.assertEqual(model["selected_category"], BL_COMPARISON)
         self.assertEqual(model["selected_action"], "Process documents")
-        self.assertIn("Attachment Processing", model["pipeline_stages"])
+        self.assertIn("SI/BL match", model["pipeline_stages"])
 
     def test_missing_ai_key_emails_are_blocked(self):
         model = build_classification_view_model(

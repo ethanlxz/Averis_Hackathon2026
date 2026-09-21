@@ -10,6 +10,7 @@ from models.email_message import utc_now
 from services.email_classifier import EmailClassifier
 from services.inbox_service import InboxService
 from services.audit_service import record_classification, record_document_registration
+from services.submission_service import SubmissionService
 
 
 def infer_document_type(attachment_path: str) -> str:
@@ -42,6 +43,7 @@ class InputDataImporter:
 
         email_count = 0
         document_count = 0
+        submission_service = SubmissionService()
 
         for email in self.inbox_service.list_emails():
             email_count += 1
@@ -59,6 +61,7 @@ class InputDataImporter:
 
             self._classify_email(email_record, email.get("attachments", []))
             record_classification(db, email_record)
+            submission_service.upsert_for_email(db, email_record)
 
         db.commit()
         return {"emails": email_count, "documents": document_count}

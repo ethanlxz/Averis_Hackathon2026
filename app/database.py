@@ -25,6 +25,7 @@ def init_db() -> None:
     import models.extraction  # noqa: F401
     import models.verification  # noqa: F401
     import models.audit_event  # noqa: F401
+    import models.submission_entry  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _ensure_email_classification_columns()

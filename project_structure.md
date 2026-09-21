@@ -16,8 +16,8 @@ records an append-only audit trail, and generates a PDF verification report.
   and SQLite column migrations.
 - `routers/api.py` contains machine-facing endpoints for import, classification,
   extraction, verification, review, audit events, and classification summaries.
-- `GET /classification` is the human workbench for browsing, searching, and
-  extracting classified emails.
+- `GET /classification` is the human workbench for browsing classified emails,
+  running SI/BL verification, reviewing exceptions, and opening audit history.
 - `services/email_classifier.py` contains the high-level classification flow.
 - `services/extraction_service.py` orchestrates the document-extraction pipeline.
 - `services/comparison_engine.py` + `services/field_normalizer.py` implement
@@ -50,7 +50,7 @@ Averis_Project/
 │   └── api.py               Import, classify, extract, verify, audit, and report endpoints
 ├── services/
 │   ├── classification_schema.py    Category constants and ClassificationResult
-│   ├── classification_workbench.py Grouped/searchable data for the UI
+│   ├── classification_workbench.py Grouped/searchable data and email detail serialization
 │   ├── email_classifier.py         DeepSeek-first classifier plus rule fallback
 │   ├── llm_service.py              DeepSeek API (classify + shipment-field extraction)
 │   ├── input_importer.py           Imports root bundle inbox/attachments into SQLite
@@ -69,7 +69,7 @@ Averis_Project/
 ├── templates/
 │   ├── base.html             Layout shell
 │   ├── dashboard.html        Dashboard UI
-│   ├── classification.html   Classified email workbench (search + extraction UI)
+│   ├── classification.html   Classified email workbench (queue + SI/BL actions)
 │   ├── inbox.html            Inbox list
 │   ├── inbox_detail.html     Single email detail
 │   ├── library.html          Document library
@@ -188,15 +188,18 @@ routers/dashboard.py
     └── services/classification_workbench.py
         ├── groups official categories
         ├── separates missing-key/null-category emails
-        ├── builds per-email extraction pipeline stages
-        ├── collects extraction errors/warnings for the UI
+        ├── serializes per-email documents, extraction values, and verification state
+        ├── collects extraction errors/warnings for the detail panel
         └── searches across all categories via ?q=
 ```
 
-The default category is `BL_COMPARISON`. The detail panel shows a four-stage
-document pipeline (Attachment Processing → Document Type Detection →
-Text/OCR Extraction → Structured Shipment JSON), per-attachment extraction
-status badges, an "Extraction issues" list, and an "Extract all text" button.
+The default category is `BL_COMPARISON`. The page is split into a left email
+queue and a right detail panel. Queue rows keep the email ID, subject, sender,
+file count, and current verification status in a fixed-height layout so long
+content does not collapse the row. The detail panel shows summary metrics,
+SI/BL verification actions, extraction issues, the latest verification result,
+document tiles, message preview, and links to the full email and audit trail.
+The old visible "Verification pipeline" card has been removed from the page.
 
 ### Manual Upload Flow
 

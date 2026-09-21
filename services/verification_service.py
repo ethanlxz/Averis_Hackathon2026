@@ -27,6 +27,18 @@ VERDICT_CLASSES = {
     "PENDING": "",
 }
 
+MISSING_DOCUMENT_LABELS = {
+    "missing_si_document": "Missing SI document",
+    "missing_bl_document": "Missing BL document",
+}
+
+REVIEW_REASON_LABELS = {
+    "missing_document": "Missing required document",
+    "extraction_error": "Extraction error",
+    "missing_value": "Missing extracted value",
+    "port_code_mismatch": "Port code needs review",
+}
+
 _STATUS_TO_RESULT = {
     "OK": "MATCH",
     "MISMATCH": "MISMATCH",
@@ -52,6 +64,7 @@ class VerificationService:
         bl = by_type.get("BL")
 
         if si is None or bl is None:
+            comparison = self._missing_document_comparison(si, bl)
             return self._upsert(
                 db,
                 email,
@@ -60,7 +73,7 @@ class VerificationService:
                 result="REVIEW",
                 review_reason="missing_document",
                 confidence=0.0,
-                comparison=None,
+                comparison=comparison,
             )
 
         if si.status == "error" or bl.status == "error":
@@ -164,10 +177,17 @@ class VerificationService:
             record = Verification(email_id=email.email_id)
             db.add(record)
 
+        verification_hash = self._hash(email, si, bl)
+
         # A fresh decision invalidates any previous human decision.
-        if record.result != result:
+        if (
+            record.result != result
+            or record.review_reason != review_reason
+            or record.verification_hash != verification_hash
+        ):
             record.reviewer_status = "pending"
             record.corrected_fields = None
+            record.reviewed_at = None
 
         record.si_document_id = si.id if si else None
         record.bl_document_id = bl.id if bl else None
@@ -181,12 +201,45 @@ class VerificationService:
         record.mismatch_details = comparison["mismatch_details"] if comparison else []
         record.review_details = comparison["review_details"] if comparison else []
         record.missing_fields = comparison["missing_fields"] if comparison else []
-        record.verification_hash = self._hash(email, si, bl)
+        record.verification_hash = verification_hash
         db.flush()
         record_verification(db, email, record, si, bl)
         return record
 
     # -- helpers --------------------------------------------------------
+    @staticmethod
+    def _missing_document_comparison(
+        si: Extraction | None,
+        bl: Extraction | None,
+    ) -> dict[str, Any]:
+        missing_fields = []
+        review_details: dict[str, dict[str, str]] = {}
+
+        if si is None:
+            key = "missing_si_document"
+            missing_fields.append(key)
+            review_details[key] = {
+                "reason": "missing_document",
+                "detail": "Shipping Instruction document is required for SI/BL verification.",
+            }
+        if bl is None:
+            key = "missing_bl_document"
+            missing_fields.append(key)
+            review_details[key] = {
+                "reason": "missing_document",
+                "detail": "Bill of Lading document is required for SI/BL verification.",
+            }
+
+        return {
+            "status": "NEEDS_REVIEW",
+            "has_defect": False,
+            "defect_fields": [],
+            "mismatch_details": {},
+            "review_reason": "missing_document",
+            "missing_fields": missing_fields,
+            "review_details": review_details,
+        }
+
     @staticmethod
     def _confidence(comparison: dict[str, Any]) -> float:
         total = len(COMPARISON_FIELDS)
@@ -214,6 +267,7 @@ def serialize_verification(record: Verification | None) -> dict[str, Any] | None
     if record is None:
         return None
 
+    missing_fields = record.missing_fields or []
     return {
         "id": record.id,
         "email_id": record.email_id,
@@ -227,11 +281,19 @@ def serialize_verification(record: Verification | None) -> dict[str, Any] | None
         "defect_fields": record.defect_fields or [],
         "mismatch_details": record.mismatch_details or [],
         "review_details": record.review_details or [],
-        "missing_fields": record.missing_fields or [],
+        "missing_fields": missing_fields,
+        "missing_field_labels": [
+            MISSING_DOCUMENT_LABELS.get(field, field.replace("_", " ").title())
+            for field in missing_fields
+        ],
         "corrected_fields": record.corrected_fields,
         "verification_hash": record.verification_hash,
         "created_at": record.created_at.isoformat() if record.created_at else None,
         "reviewed_at": record.reviewed_at.isoformat() if record.reviewed_at else None,
+        "review_reason_label": REVIEW_REASON_LABELS.get(
+            record.review_reason or "",
+            (record.review_reason or "").replace("_", " ").title(),
+        ),
         "verdict_label": VERDICT_LABELS.get(record.result, record.result),
         "verdict_class": VERDICT_CLASSES.get(record.result, ""),
     }

@@ -38,6 +38,18 @@ RESULT_CLASSES = {
     "REVIEW": "warning",
 }
 
+MISSING_FIELD_LABELS = {
+    "missing_si_document": "Missing SI document",
+    "missing_bl_document": "Missing BL document",
+}
+
+REVIEW_REASON_LABELS = {
+    "missing_document": "Missing required document",
+    "extraction_error": "Extraction error",
+    "missing_value": "Missing extracted value",
+    "port_code_mismatch": "Port code needs review",
+}
+
 
 def _iso(value: datetime | None) -> str | None:
     if value is None:
@@ -163,6 +175,7 @@ def _verification_snapshot(
     bl: Extraction | None,
     timeline: list[dict[str, str | None]],
 ) -> dict[str, Any]:
+    missing_fields = list(verification.missing_fields or [])
     return {
         "email": {
             "id": email.id,
@@ -177,11 +190,19 @@ def _verification_snapshot(
             "confidence": verification.confidence,
             "reviewer_status": verification.reviewer_status,
             "review_reason": verification.review_reason,
+            "review_reason_label": REVIEW_REASON_LABELS.get(
+                verification.review_reason or "",
+                (verification.review_reason or "").replace("_", " ").title(),
+            ),
             "has_defect": verification.has_defect,
             "defect_fields": list(verification.defect_fields or []),
             "mismatch_details": verification.mismatch_details or {},
             "review_details": verification.review_details or {},
-            "missing_fields": list(verification.missing_fields or []),
+            "missing_fields": missing_fields,
+            "missing_field_labels": [
+                MISSING_FIELD_LABELS.get(field, field.replace("_", " ").title())
+                for field in missing_fields
+            ],
             "corrected_fields": verification.corrected_fields,
             "verification_hash": verification.verification_hash,
             "created_at": _iso(verification.created_at),

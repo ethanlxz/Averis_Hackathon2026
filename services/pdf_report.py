@@ -161,12 +161,14 @@ def generate_report(
     story.append(comparison_table)
 
     review_reason = verification.get("review_reason")
+    review_reason_label = verification.get("review_reason_label") or review_reason
     mismatch_details = verification.get("mismatch_details") or {}
     missing = verification.get("missing_fields") or []
+    missing_labels = verification.get("missing_field_labels") or missing
     if review_reason or mismatch_details or missing:
         story.append(Paragraph("Notes", h2_style))
-        if review_reason:
-            story.append(Paragraph(f"Review reason: {_esc(review_reason)}", body))
+        if review_reason_label:
+            story.append(Paragraph(f"Review reason: {_esc(review_reason_label)}", body))
         for field, detail in mismatch_details.items():
             if not isinstance(detail, dict):
                 continue
@@ -178,7 +180,7 @@ def generate_report(
                 )
             )
         if missing:
-            story.append(Paragraph(f"Missing fields: {_esc(', '.join(missing))}", body))
+            story.append(Paragraph(f"Missing fields: {_esc(', '.join(missing_labels))}", body))
 
     story.append(Spacer(1, 18))
     story.append(

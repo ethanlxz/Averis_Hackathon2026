@@ -26,29 +26,26 @@ CATEGORY_ACTIONS = {
 }
 
 PIPELINE_STAGES = (
-    "Attachment Processing",
-    "Document Type Detection",
-    "Text/OCR Extraction",
-    "Structured Shipment JSON",
-    "SI/BL Comparison",
-    "Human Review",
+    "Files",
+    "Type check",
+    "Text extraction",
+    "Shipment JSON",
+    "SI/BL match",
+    "Human review",
     "Report",
-)
-
-EXTRACTION_PIPELINE_STAGES = (
-    "Attachment Processing",
-    "Document Type Detection",
-    "Text/OCR Extraction",
-    "Structured Shipment JSON",
 )
 
 
 def build_pipeline_stages(email: EmailMessage) -> list[dict[str, Any]]:
-    """Map a single email to the four extraction-pipeline stage statuses."""
+    """Map a single email to the end-to-end SI/BL verification pipeline."""
     documents = getattr(email, "documents", None) or []
     extractions = getattr(email, "extractions", None) or []
+    verifications = getattr(email, "verifications", None) or []
+    verification = verifications[0] if verifications else None
 
     has_documents = bool(documents)
+    si_documents = [document for document in documents if document.document_type == "SI"]
+    bl_documents = [document for document in documents if document.document_type == "BL"]
     has_types = bool(documents) and all(
         document.document_type and document.document_type != "UNKNOWN"
         for document in documents
@@ -63,33 +60,72 @@ def build_pipeline_stages(email: EmailMessage) -> list[dict[str, Any]]:
     populated = [extraction for extraction in extractions if extraction.fields]
     has_extraction = bool(extractions)
     has_fields = bool(populated)
+    has_errors = any(extraction.status == "error" for extraction in extractions)
+    has_warnings = any(extraction.status == "warning" for extraction in extractions)
+    issue_status = "Issue" if has_errors else ("Review" if has_warnings else "Done")
+    verification_status = verification.result if verification else None
+
+    def done_detail(count: int, label: str) -> str:
+        return f"{count} {label}{'' if count == 1 else 's'}"
 
     return [
         {
             "key": "attachments",
-            "name": EXTRACTION_PIPELINE_STAGES[0],
+            "name": PIPELINE_STAGES[0],
             "status": "Done" if has_documents else "Pending",
+            "detail": (
+                f"{len(si_documents)} SI · {len(bl_documents)} BL"
+                if has_documents
+                else "Waiting for SI/BL files"
+            ),
         },
         {
             "key": "detection",
-            "name": EXTRACTION_PIPELINE_STAGES[1],
+            "name": PIPELINE_STAGES[1],
             "status": "Done" if has_types else "Pending",
+            "detail": "SI and BL identified" if has_types else "Needs document labels",
         },
         {
             "key": "extraction",
-            "name": EXTRACTION_PIPELINE_STAGES[2],
-            "status": "Done" if has_extraction else "Pending",
+            "name": PIPELINE_STAGES[2],
+            "status": issue_status if has_extraction else "Pending",
             "detail": ", ".join(methods) if has_extraction else None,
         },
         {
             "key": "json",
-            "name": EXTRACTION_PIPELINE_STAGES[3],
+            "name": PIPELINE_STAGES[3],
             "status": "Done" if has_fields else "Pending",
+            "detail": done_detail(len(populated), "record") if has_fields else None,
+        },
+        {
+            "key": "comparison",
+            "name": PIPELINE_STAGES[4],
+            "status": verification_status or "Pending",
             "detail": (
-                f"{len(populated)} record{'' if len(populated) == 1 else 's'}"
-                if has_fields
+                f"{verification.confidence * 100:.0f}% confidence"
+                if verification and verification.confidence is not None
+                else "Run extraction to compare"
+            ),
+        },
+        {
+            "key": "review",
+            "name": PIPELINE_STAGES[5],
+            "status": (
+                verification.reviewer_status.title()
+                if verification and verification.reviewer_status != "pending"
+                else ("Pending" if verification and verification.result != "MATCH" else "Not needed")
+            ),
+            "detail": (
+                verification.review_reason
+                if verification and verification.review_reason
                 else None
             ),
+        },
+        {
+            "key": "report",
+            "name": PIPELINE_STAGES[6],
+            "status": "Ready" if verification else "Pending",
+            "detail": "PDF available" if verification else None,
         },
     ]
 

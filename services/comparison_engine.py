@@ -1,6 +1,11 @@
 from typing import Any
 
-from services.field_normalizer import compare_ports, names_match
+from services.field_normalizer import (
+    compare_ports,
+    names_match,
+    parse_container_count,
+    parse_gross_weight_kg,
+)
 
 COMPARISON_FIELDS = (
     "shipper",
@@ -45,9 +50,19 @@ class ComparisonEngine:
                         "reason": port_result["reason"],
                     }
             elif field == "container_count":
-                matched = int(si_value) == int(bl_value)
+                si_count = parse_container_count(str(si_value))
+                bl_count = parse_container_count(str(bl_value))
+                if si_count is None or bl_count is None:
+                    missing.append(field)
+                    continue
+                matched = si_count == bl_count
             elif field == "gross_weight_kg":
-                matched = abs(float(si_value) - float(bl_value)) <= GROSS_WEIGHT_TOLERANCE_KG
+                si_weight = parse_gross_weight_kg(str(si_value))
+                bl_weight = parse_gross_weight_kg(str(bl_value))
+                if si_weight is None or bl_weight is None:
+                    missing.append(field)
+                    continue
+                matched = abs(si_weight - bl_weight) <= GROSS_WEIGHT_TOLERANCE_KG
             else:
                 matched = str(si_value).strip().casefold() == str(bl_value).strip().casefold()
 

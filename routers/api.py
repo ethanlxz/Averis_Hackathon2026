@@ -14,6 +14,7 @@ from services.document_parser import snake_to_display
 from services.extraction_service import ExtractionService
 from services.input_importer import InputDataImporter, reset_database
 from services.pdf_report import generate_report
+from services.submission_service import SubmissionService
 from services.verification_service import VerificationService, serialize_verification
 from services.audit_service import list_events, record_classification, serialize_detail
 
@@ -45,6 +46,7 @@ def classify_email(payload: dict) -> dict[str, str | float | None]:
 @router.post("/classify-imported-emails")
 def classify_imported_emails(db: Session = Depends(get_db)) -> dict[str, int | str]:
     classifier = EmailClassifier()
+    submission_service = SubmissionService()
     emails = db.query(EmailMessage).order_by(EmailMessage.email_id).all()
 
     for email in emails:
@@ -58,6 +60,7 @@ def classify_imported_emails(db: Session = Depends(get_db)) -> dict[str, int | s
         email.classification_source = result.source
         email.classified_at = utc_now()
         record_classification(db, email)
+        submission_service.upsert_for_email(db, email)
 
     db.commit()
     return {"status": "classified", "emails": len(emails)}
@@ -135,6 +138,7 @@ def extract_email(email_id: str, db: Session = Depends(get_db)) -> dict:
 
     result = ExtractionService().process_email(db, email)
     verification = VerificationService().verify_email(db, email)
+    SubmissionService().upsert_for_email(db, email, verification)
     db.commit()
     result["verification"] = serialize_verification(verification)
     return result
@@ -152,6 +156,7 @@ def extract_all(db: Session = Depends(get_db)) -> dict[str, int | str | list]:
 
     service = ExtractionService()
     verifier = VerificationService()
+    submission_service = SubmissionService()
     results = []
     for (email_id,) in email_ids:
         email = (
@@ -163,6 +168,7 @@ def extract_all(db: Session = Depends(get_db)) -> dict[str, int | str | list]:
             continue
         result = service.process_email(db, email)
         verification = verifier.verify_email(db, email)
+        submission_service.upsert_for_email(db, email, verification)
         db.commit()
         result["verification"] = serialize_verification(verification)
         results.append(result)
@@ -171,6 +177,22 @@ def extract_all(db: Session = Depends(get_db)) -> dict[str, int | str | list]:
         "status": "extracted",
         "emails": len(results),
         "results": results,
+    }
+
+
+@router.get("/submission")
+def get_submission(db: Session = Depends(get_db)) -> dict[str, dict]:
+    return SubmissionService().export(db)
+
+
+@router.post("/submission/refresh")
+def refresh_submission(db: Session = Depends(get_db)) -> dict[str, int | str]:
+    result = SubmissionService().refresh_all(db)
+    db.commit()
+    return {
+        "status": "refreshed",
+        "entries": result["upserted"],
+        "removed": result["removed"],
     }
 
 

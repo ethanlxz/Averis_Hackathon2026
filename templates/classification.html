@@ -8,7 +8,20 @@
 {% block content %}
   <p class="notification" id="classify-status" role="status" aria-live="polite"></p>
   {% set display_emails = search_results if search_active else selected_emails %}
-  <div class="toolbar">
+  <section class="classification-hero" aria-labelledby="classification-overview">
+    <div>
+      <span class="eyebrow">Operations queue</span>
+      <h2 id="classification-overview">Classify, extract, compare, review</h2>
+      <p>Pick an email from the queue, then follow the SI/BL verification flow from files to report.</p>
+    </div>
+    <div class="hero-stats" aria-label="Classification totals">
+      <div><strong>{{ total_classified }}</strong><span>classified</span></div>
+      <div><strong>{{ total_emails }}</strong><span>emails</span></div>
+      <div><strong>{{ needs_classification_count }}</strong><span>need action</span></div>
+    </div>
+  </section>
+
+  <div class="toolbar classification-toolbar">
     <form class="search-form" action="/classification" method="get">
       <div class="search-wrap">
         <svg aria-hidden="true"><use href="/static/icons.svg#search"></use></svg>
@@ -18,6 +31,7 @@
       {% if search_active %}<a class="button ghost" href="/classification">Clear</a>{% endif %}
     </form>
   </div>
+
   {% if needs_classification_count %}
     <div class="callout" role="alert">
       <strong>{{ needs_classification_count }} email{{ "" if needs_classification_count == 1 else "s" }} need classification</strong>
@@ -29,73 +43,92 @@
       <a href="/classification?category={{ category.key }}" {% if category.key == selected_category and not search_active %}aria-current="page"{% endif %}>{{ category.label }} <small>{{ category.count }}</small></a>
     {% endfor %}
   </nav>
-  <section class="workbench-grid" aria-label="{{ 'Search results' if search_active else selected_label }} emails">
-    <div class="section-stack">
+
+  <section class="verification-workspace" aria-label="{{ 'Search results' if search_active else selected_label }} emails">
+    <div class="queue-panel section-stack">
       <div class="section-heading">
         <div>
-          <h2>{% if search_active %}Search results{% else %}{{ selected_label }}{% endif %}</h2>
+          <h2>{% if search_active %}Search results{% else %}{{ selected_label }} queue{% endif %}</h2>
           <p>{% if search_active %}{{ search_results|length }} matching email{{ "" if search_results|length == 1 else "s" }} for "{{ search_query }}"{% else %}{{ selected_emails|length }} emails · {{ selected_action }}{% endif %}</p>
         </div>
       </div>
       {% if display_emails %}
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th scope="col">Email</th><th scope="col">Subject</th><th scope="col">Sender</th>{% if search_active %}<th scope="col">Category</th>{% endif %}<th scope="col" class="numeric">Files</th><th scope="col" class="numeric">Confidence</th><th scope="col">Verdict</th></tr></thead>
-          <tbody>
-            {% for email in display_emails %}
-            <tr data-email-row="{{ email.email_id }}" class="{% if email.verification %}verdict-{{ email.verification.verdict_class }} {% endif %}{% if loop.first %}is-selected{% endif %}">
-              <td><button class="record-button" type="button" data-email-target="{{ email.email_id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}" aria-label="Show details for {{ email.email_id }}">{{ email.email_id }}</button></td>
-              <td class="subject"><span class="truncate" title="{{ email.subject }}">{{ email.subject or "(No subject)" }}</span></td>
-              <td><span class="truncate" title="{{ email.sender }}">{{ email.sender }}</span></td>
-              {% if search_active %}<td><span class="status {% if email.category %}success{% else %}warning{% endif %}">{{ email.category_label or "Unclassified" }}</span></td>{% endif %}
-              <td class="numeric">{{ email.attachment_count }}</td>
-              <td class="numeric">{% if email.classification_confidence is not none %}{{ "%.0f"|format(email.classification_confidence * 100) }}%{% else %}-{% endif %}</td>
-              <td data-verdict-cell>{% if email.verification %}<span class="status {{ email.verification.verdict_class }}">{{ email.verification.verdict_label }}</span>{% else %}<span class="status">Pending</span>{% endif %}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="queue-list" role="list">
+        {% for email in display_emails %}
+        <button class="queue-item {% if loop.first %}is-selected{% endif %}" type="button" role="listitem" data-email-target="{{ email.email_id }}" data-email-row="{{ email.email_id }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">
+          <span class="queue-copy">
+            <span class="queue-item-top"><strong>{{ email.email_id }}</strong></span>
+            <span class="queue-subject">{{ email.subject or "(No subject)" }}</span>
+            <span class="queue-meta">
+              <span>{{ email.sender }}</span>
+              <span>{{ email.attachment_count }} file{{ "" if email.attachment_count == 1 else "s" }}</span>
+              {% if search_active %}<span>{{ email.category_label or "Unclassified" }}</span>{% endif %}
+            </span>
+          </span>
+          {% if email.verification %}
+          <span class="status {{ email.verification.verdict_class }} queue-status" data-verdict-cell>{{ email.verification.verdict_label }}</span>
+          {% else %}
+          <span class="status queue-status" data-verdict-cell>Pending</span>
+          {% endif %}
+        </button>
+        {% endfor %}
       </div>
       {% else %}
       <div class="card empty-state">{% if search_active %}<strong>No matching emails</strong><p>Try a different search term.</p>{% else %}<strong>No {{ selected_label|lower }} emails</strong><p>Choose another category or import inbox data.</p>{% endif %}<a class="button secondary" href="/">Go to overview</a></div>
       {% endif %}
     </div>
-    <aside class="card detail-panel" aria-label="Email details">
+
+    <section class="detail-panel verification-panel" aria-label="Email details">
       {% for email in display_emails %}
       <article class="email-detail {% if loop.first %}is-active{% endif %}" data-email-detail="{{ email.email_id }}">
-        <span class="detail-id">{{ email.email_id }}</span>
-        <h2 class="detail-subject">{{ email.subject or "(No subject)" }}</h2>
-        <dl class="detail-meta">
-          <div><dt>Sender</dt><dd>{{ email.sender }}</dd></div>
-          <div><dt>Category</dt><dd>{{ email.category_label or "Unclassified" }}</dd></div>
-          <div><dt>Source</dt><dd>{{ email.classification_source or "Unknown" }}</dd></div>
-          <div><dt>Confidence</dt><dd class="tabular">{% if email.classification_confidence is not none %}{{ "%.0f"|format(email.classification_confidence * 100) }}%{% else %}-{% endif %}</dd></div>
-          <div><dt>Classified</dt><dd>{{ email.classified_at[:16].replace("T", " ") if email.classified_at else "-" }}</dd></div>
-        </dl>
-        <section class="detail-section"><h3>Message preview</h3><p>{{ email.body_preview or "No message body." }}</p></section>
-        <section class="detail-section"><h3>Attachments</h3>
-          {% if email.documents %}
-          <ul class="file-list">{% for document in email.documents %}<li data-document-id="{{ document.id }}"><button class="file-button" type="button" data-attachment-open data-document-id="{{ document.id }}">{{ document.filename }}</button><span class="file-badges"><small data-doc-type>{{ document.document_type }} · {{ document.status }}</small>{% if document.extraction_status %}<small class="status {{ document.extraction_status_class }}" data-extraction-badge>{{ document.extraction_status }}</small>{% endif %}{% if document.detected_document_type and document.detected_document_type != document.document_type %}<small class="status danger" data-detected-badge>{{ document.detected_document_type }}</small>{% endif %}</span></li>{% endfor %}</ul>
-          {% else %}<p class="muted">No attachments recorded.</p>{% endif %}
-        </section>
+        <div class="verification-header">
+          <div>
+            <span class="detail-id">{{ email.email_id }}</span>
+            <h2 class="detail-subject">{{ email.subject or "(No subject)" }}</h2>
+            <p>{{ email.sender }}</p>
+          </div>
+          <div class="verdict-summary">
+            {% if email.verification %}
+            <span class="status {{ email.verification.verdict_class }}">{{ email.verification.verdict_label }}</span>
+            <strong class="tabular">{{ "%.0f"|format(email.verification.confidence * 100) }}%</strong>
+            <small>confidence</small>
+            {% else %}
+            <span class="status">Pending</span>
+            <strong>Not run</strong>
+            <small>verification</small>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="summary-grid" aria-label="Selected email summary">
+          <div><span>Category</span><strong>{{ email.category_label or "Unclassified" }}</strong></div>
+          <div><span>Classification</span><strong>{% if email.classification_confidence is not none %}{{ "%.0f"|format(email.classification_confidence * 100) }}%{% else %}-{% endif %}</strong></div>
+          <div><span>Files</span><strong>{{ email.attachment_count }}</strong></div>
+          <div><span>Classified</span><strong>{{ email.classified_at[:16].replace("T", " ") if email.classified_at else "-" }}</strong></div>
+        </div>
+
         {% if selected_category == bl_category %}
-        <section class="detail-section">
-          <h3>Document pipeline</h3>
-          <ol class="pipeline-list">
-            {% for stage in email.pipeline %}
-            <li data-stage="{{ stage.key }}">
-              <span>{{ stage.name }}</span>
-              <small class="{{ 'status success' if stage.status == 'Done' else '' }}">{{ stage.status }}{% if stage.detail %} · {{ stage.detail }}{% endif %}</small>
-            </li>
-            {% endfor %}
-          </ol>
-          <div class="detail-actions">
-            <button class="button secondary" type="button" data-extract-button data-email-id="{{ email.email_id }}"><span>Extract all text</span></button>
+        <section class="verification-command">
+          <div>
+            <span class="eyebrow">SI/BL verification</span>
+            <h3>Next step</h3>
+            {% if email.verification %}
+            <p>Verification has been run. Review exceptions, download the report, or rerun extraction if the files changed.</p>
+            {% else %}
+            <p>Run extraction to read SI/BL files, build shipment JSON, and compare the two documents.</p>
+            {% endif %}
+          </div>
+          <div class="command-actions">
+            <button class="button" type="button" data-extract-button data-email-id="{{ email.email_id }}"><span>{{ "Extract again" if email.verification else "Run SI/BL verification" }}</span></button>
+            {% if email.verification %}
+            <a class="button secondary" href="/api/verification/{{ email.email_id | urlencode }}/report.pdf">Download report</a>
+            {% endif %}
             <p class="notification" data-extract-status role="status" aria-live="polite"></p>
           </div>
         </section>
+
         <section class="detail-section" data-issues-section {% if not email.has_extraction_issues %}hidden{% endif %}>
-          <h3>Extraction issues</h3>
+          <div class="section-heading compact"><div><h3>Extraction issues</h3><p>Items that may block a clean comparison.</p></div></div>
           <ul class="issue-list" data-issue-list>
             {% for issue in email.extraction_errors %}
             <li class="issue error"><strong>{{ issue.filename }} — {{ issue.code }}</strong><p>{{ issue.detail }}</p></li>
@@ -105,32 +138,51 @@
             {% endfor %}
           </ul>
         </section>
-        <section class="detail-section" data-verification data-email-id="{{ email.email_id }}">
-          <h3>Verification</h3>
+
+        <section class="verification-review detail-section" data-verification data-email-id="{{ email.email_id }}">
+          <div class="section-heading compact"><div><h3>Verification result</h3><p>Decision, review state, and actions for this SI/BL pair.</p></div></div>
           {% if email.verification %}
-          <div class="verdict-row">
-            <span class="status {{ email.verification.verdict_class }}">{{ email.verification.verdict_label }}</span>
-            <small class="tabular">{{ "%.0f"|format(email.verification.confidence * 100) }}% confidence</small>
-            <small>{{ email.verification.reviewer_status }}</small>
+          <div class="result-card {{ email.verification.verdict_class }}">
+            <div>
+              <span class="status {{ email.verification.verdict_class }}">{{ email.verification.verdict_label }}</span>
+              <strong class="tabular">{{ "%.0f"|format(email.verification.confidence * 100) }}% confidence</strong>
+              <small>{{ email.verification.reviewer_status.replace("_", " ").title() }}</small>
+            </div>
+            {% if email.verification.review_reason %}<p>{{ email.verification.review_reason_label }}</p>{% endif %}
+            {% if email.verification.missing_field_labels %}
+            <ul class="compact-list">
+              {% for label in email.verification.missing_field_labels %}
+              <li>{{ label }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
           </div>
-          {% if email.verification.review_reason %}<p class="muted">{{ email.verification.review_reason }}</p>{% endif %}
           <div class="detail-actions">
-            <a class="button secondary" href="/api/verification/{{ email.email_id | urlencode }}/report.pdf">Download report</a>
             {% if email.verification.result != 'MATCH' %}
             <button class="button" type="button" data-review-button data-email-id="{{ email.email_id }}">Review</button>
             {% endif %}
+            <a class="record-link" href="/audit?q={{ email.email_id | urlencode }}">Open audit trail</a>
           </div>
           {% else %}
-          <p class="muted">Not verified yet — press "Extract all text".</p>
+          <p class="muted">No result yet. Run SI/BL verification to compare shipment fields.</p>
           {% endif %}
         </section>
         {% endif %}
+
+        <section class="detail-section">
+          <div class="section-heading compact"><div><h3>Documents</h3><p>Open a processed file to inspect extracted and normalized values.</p></div></div>
+          {% if email.documents %}
+          <div class="document-grid">{% for document in email.documents %}<article class="document-tile" data-document-id="{{ document.id }}"><button class="file-button" type="button" data-attachment-open data-document-id="{{ document.id }}">{{ document.filename }}</button><div class="file-badges"><small data-doc-type>{{ document.document_type }} · {{ document.status }}</small>{% if document.extraction_status %}<small class="status {{ document.extraction_status_class }}" data-extraction-badge>{{ document.extraction_status }}</small>{% endif %}{% if document.detected_document_type and document.detected_document_type != document.document_type %}<small class="status danger" data-detected-badge>{{ document.detected_document_type }}</small>{% endif %}</div></article>{% endfor %}</div>
+          {% else %}<p class="muted">No attachments recorded.</p>{% endif %}
+        </section>
+
+        <section class="detail-section message-preview"><details><summary>Message preview</summary><p>{{ email.body_preview or "No message body." }}</p></details></section>
         <section class="detail-section"><a class="record-link" href="/inbox/{{ email.email_id | urlencode }}">Open full email <svg aria-hidden="true"><use href="/static/icons.svg#arrow-right"></use></svg></a></section>
       </article>
       {% else %}
       <div class="empty-state"><strong>No email selected</strong><p>{% if search_active %}No emails match your search.{% else %}Emails in this category will appear here.{% endif %}</p></div>
       {% endfor %}
-    </aside>
+    </section>
   </section>
   {% if needs_classification_count %}
   <section class="section-stack" aria-labelledby="needs-heading">
@@ -186,30 +238,6 @@
     }
   });
 
-  function setPipelineStage(article, key, done, detail) {
-    const item = article.querySelector(`li[data-stage="${key}"]`);
-    if (!item) return;
-    const small = item.querySelector("small");
-    if (done) {
-      small.className = "status success";
-      small.textContent = detail ? `Done · ${detail}` : "Done";
-    } else {
-      small.className = "";
-      small.textContent = "Pending";
-    }
-  }
-
-  function updatePipeline(emailId, extractions) {
-    const article = document.querySelector(`[data-email-detail="${emailId}"]`);
-    if (!article) return;
-    const methods = [...new Set((extractions || []).map((item) => item.extraction_method).filter(Boolean))].join(", ");
-    const count = (extractions || []).length;
-    setPipelineStage(article, "attachments", true);
-    setPipelineStage(article, "detection", true);
-    setPipelineStage(article, "extraction", count > 0, methods);
-    setPipelineStage(article, "json", count > 0, count ? `${count} record${count === 1 ? "" : "s"}` : "");
-  }
-
   function statusBadgeClass(status) {
     if (status === "ok") return "success";
     if (status === "error") return "danger";
@@ -221,7 +249,7 @@
     const article = document.querySelector(`[data-email-detail="${emailId}"]`);
     if (!article) return;
     (extractions || []).forEach((item) => {
-      const li = article.querySelector(`li[data-document-id="${item.document_id}"]`);
+      const li = article.querySelector(`[data-document-id="${item.document_id}"]`);
       if (!li) return;
       let badges = li.querySelector(".file-badges");
       if (!badges) {
@@ -273,7 +301,7 @@
     const list = section.querySelector("[data-issue-list]");
     const issues = [];
     (extractions || []).forEach((item) => {
-      const li = article.querySelector(`li[data-document-id="${item.document_id}"]`);
+      const li = article.querySelector(`[data-document-id="${item.document_id}"]`);
       const filename = li ? li.querySelector("[data-attachment-open]").textContent : item.document_type;
       (item.errors || []).forEach((error) => issues.push({
         severity: "error", filename, code: error.code, detail: error.detail, field: error.field,
@@ -355,7 +383,7 @@
   function updateExtractionData(emailId, extractions) {
     const article = document.querySelector(`[data-email-detail="${emailId}"]`);
     (extractions || []).forEach((item) => {
-      const li = article ? article.querySelector(`li[data-document-id="${item.document_id}"]`) : null;
+      const li = article ? article.querySelector(`[data-document-id="${item.document_id}"]`) : null;
       const filename = li ? li.querySelector("[data-attachment-open]").textContent : item.document_type;
       extractionData[String(item.document_id)] = {
         filename,
@@ -380,7 +408,7 @@
   const reviewModal = document.querySelector("#review-modal");
   const reviewTitle = document.querySelector("[data-review-title]");
   const reviewBody = document.querySelector("[data-review-body]");
-  const reviewFieldLabels = { shipper: "Shipper", consignee: "Consignee", notify_party: "Notify Party", port_of_loading: "Port of Loading", port_of_discharge: "Port of Discharge", container_count: "Container Count", gross_weight_kg: "Gross Weight (kg)" };
+  const reviewFieldLabels = { shipper: "Shipper", consignee: "Consignee", notify_party: "Notify Party", port_of_loading: "Port of Loading", port_of_discharge: "Port of Discharge", container_count: "Container Count", gross_weight_kg: "Gross Weight (kg)", missing_si_document: "Missing SI document", missing_bl_document: "Missing BL document" };
 
   async function submitReview(emailId, action, correctedFields) {
     try {
@@ -434,7 +462,7 @@
       h.textContent = "Missing";
       reviewBody.appendChild(h);
       const p = document.createElement("p");
-      p.textContent = missing.map((f) => reviewFieldLabels[f] || f).join(", ");
+      p.textContent = (entry.missing_field_labels || missing.map((f) => reviewFieldLabels[f] || f)).join(", ");
       reviewBody.appendChild(p);
     }
 
@@ -494,7 +522,7 @@
   document.querySelectorAll("[data-extract-button]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       const emailId = button.dataset.emailId;
-      const status = button.closest(".detail-section").querySelector("[data-extract-status]");
+      const status = button.closest(".verification-command, .detail-section")?.querySelector("[data-extract-status]");
       const label = button.querySelector("span");
       button.disabled = true;
       label.textContent = "Extracting…";
@@ -503,7 +531,6 @@
         const response = await fetch(`/api/extract/${encodeURIComponent(emailId)}`, { method: "POST" });
         if (!response.ok) throw new Error("Extraction failed. Try again.");
         const data = await response.json();
-        updatePipeline(emailId, data.extractions);
         updateBadges(emailId, data.extractions);
         updateIssues(emailId, data.extractions);
         updateExtractionData(emailId, data.extractions);
