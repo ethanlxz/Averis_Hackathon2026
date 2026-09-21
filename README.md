@@ -595,6 +595,21 @@ Averis_Project/
 
 Run these commands from the `Averis_Project` folder:
 
+For the intended AI-assisted workflow, create a `.env` file in this folder and
+add both API keys:
+
+```env
+DEEPSEEK_API_KEY="your-deepseek-api-key"
+OCR_PROVIDER="openai"
+OPENAI_API_KEY="your-openai-api-key"
+```
+
+The DeepSeek API key is used for email classification and the OpenAI API key is
+used for OCR on scanned or image-only documents. Do not commit or include the
+`.env` file in the submission zip.
+
+Then build and start the application:
+
 ```bash
 docker compose up --build
 ```
@@ -606,11 +621,18 @@ http://localhost:8000
 ```
 
 After the app opens, import the bundled data by clicking **Import inbox** on the
-dashboard. You can also import from the command line:
+dashboard. Initial setup and processing can take approximately 15 minutes, so
+allow the import to finish and do not start it more than once. You can also
+import from the command line:
 
 ```bash
 docker compose exec averis python scripts/import_input_data.py --reset
 ```
+
+When the import is complete, open the **BL Comparison** page, leave the mode set
+to **Pending only**, and click **Verify all**. This extraction and verification
+step is required to process the pending BL comparison emails and produce their
+final verification results.
 
 The container reads:
 
@@ -620,10 +642,10 @@ The container reads:
 /app/loader.py
 ```
 
-The Docker image uses the OpenAI OCR path by default to keep setup light. Set
-`OPENAI_API_KEY` in your shell or local `.env` file if scanned/image-only
-documents need OCR. Without API keys, the app still runs with rule-based
-classification and non-OCR extraction fallbacks.
+The Docker image uses the OpenAI OCR path by default to keep setup light. Without
+the API keys, the app can still start with rule-based classification and
+non-OCR extraction fallbacks, but the intended classification and scanned
+document workflow requires both keys shown above.
 
 ### Local Python fallback
 
