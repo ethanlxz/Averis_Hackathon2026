@@ -364,13 +364,16 @@ flowchart TD
 | AI email classification | DeepSeek chat API classifies emails when `DEEPSEEK_API_KEY` is configured, with rule fallback when the API is unavailable. | Move classifier calls behind a queue for retry, rate limiting, and batch processing. |
 | AI field extraction support | DeepSeek fills missing shipment fields when rule extraction is incomplete and text is available. | Track model prompts, versions, and confidence metrics for controlled production tuning. |
 | OCR | EasyOCR is available for local OCR; OpenAI OCR is available through `OCR_PROVIDER=openai` for higher-accuracy scanned document extraction. | Route large OCR jobs to asynchronous workers and store OCR outputs for reuse. |
-| Application backend | FastAPI runs locally with Uvicorn. | Deploy as a containerized API service on Render, Railway, Azure App Service, AWS ECS, or similar. |
+| Application backend | FastAPI and Uvicorn run inside a Docker container, with Docker Compose exposing the application on `http://localhost:8000`. | Deploy the same container image to Render, Railway, Azure App Service, AWS ECS, or a similar container platform. |
+| Container packaging | `Dockerfile`, `docker-compose.yml`, and `requirements-docker.txt` provide a reproducible judge-facing runtime without requiring a local Python installation. The bundled `inbox/`, `attachments/`, and `loader.py` are available inside the container under `/app`. | Publish a versioned image to a container registry and use separate web and background-worker services for production workloads. |
 | Database | SQLite stores MVP data locally. | Replace `DATABASE_URL` with managed PostgreSQL, such as Supabase Postgres, for concurrent users and persistent cloud data. |
 | File storage | Attachments are read from the local bundle and `uploads/`. | Move uploaded SI/BL files to object storage such as Supabase Storage, S3, or Azure Blob Storage. |
 | Audit and reports | Audit events are stored in the database; PDF reports are generated on demand. | Persist generated reports in object storage and add retention policies. |
-| Configuration | `.env` and environment variables drive API keys, OCR provider, database URL, and model settings. | Use cloud secret managers or platform environment variables for deployment. |
+| Configuration | Docker Compose loads `.env` values for API keys, while the container configures its data source, SQLite database, upload directory, and OCR provider through environment variables. | Use cloud secret managers or platform environment variables for deployment. |
 
-The current project is intentionally MVP-friendly: it works locally, keeps setup simple, and isolates the places that would change for cloud deployment through configuration and service boundaries.
+The current project is intentionally MVP-friendly and Docker-first: judges can
+run the complete application with Docker Compose, while the same container and
+service boundaries provide a direct path to cloud deployment.
 
 ## BL Comparison Edge Cases Handled
 
